@@ -66,6 +66,89 @@ export type Database = {
         }
         Relationships: []
       }
+      portfolio_holdings: {
+        Row: {
+          company_name: string
+          created_at: string
+          current_price: number | null
+          id: string
+          last_updated: string | null
+          purchase_date: string
+          purchase_price: number
+          shares: number
+          symbol: string
+          user_id: string
+        }
+        Insert: {
+          company_name: string
+          created_at?: string
+          current_price?: number | null
+          id?: string
+          last_updated?: string | null
+          purchase_date?: string
+          purchase_price: number
+          shares: number
+          symbol: string
+          user_id: string
+        }
+        Update: {
+          company_name?: string
+          created_at?: string
+          current_price?: number | null
+          id?: string
+          last_updated?: string | null
+          purchase_date?: string
+          purchase_price?: number
+          shares?: number
+          symbol?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      portfolio_transactions: {
+        Row: {
+          created_at: string
+          holding_id: string | null
+          id: string
+          price: number
+          shares: number
+          symbol: string
+          transaction_date: string
+          transaction_type: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          holding_id?: string | null
+          id?: string
+          price: number
+          shares: number
+          symbol: string
+          transaction_date?: string
+          transaction_type: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          holding_id?: string | null
+          id?: string
+          price?: number
+          shares?: number
+          symbol?: string
+          transaction_date?: string
+          transaction_type?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "portfolio_transactions_holding_id_fkey"
+            columns: ["holding_id"]
+            isOneToOne: false
+            referencedRelation: "portfolio_holdings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
