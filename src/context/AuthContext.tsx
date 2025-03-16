@@ -9,6 +9,7 @@ type AuthContextType = {
   user: User | null;
   session: Session | null;
   loading: boolean;
+  getUserName: () => string;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, name: string) => Promise<void>;
   signOut: () => Promise<void>;
@@ -22,6 +23,21 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // Helper function to get user name from metadata
+  const getUserName = () => {
+    if (!user) return "";
+    
+    // Try to get name from user_metadata
+    const name = user.user_metadata?.name || user.user_metadata?.full_name;
+    
+    // Fallback to email
+    if (!name) {
+      return user.email?.split('@')[0] || "User";
+    }
+    
+    return name;
+  };
 
   // Check for existing session on mount
   useEffect(() => {
@@ -121,6 +137,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     user,
     session,
     loading,
+    getUserName,
     signIn,
     signUp,
     signOut

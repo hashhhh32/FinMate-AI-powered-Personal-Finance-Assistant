@@ -34,13 +34,13 @@ const securityFormSchema = z.object({
 });
 
 const DashboardSettings = () => {
-  const { user } = useAuth();
+  const { user, getUserName } = useAuth();
   const { toast } = useToast();
   
   const profileForm = useForm<z.infer<typeof profileFormSchema>>({
     resolver: zodResolver(profileFormSchema),
     defaultValues: {
-      name: user?.name || "",
+      name: getUserName() || "",
       email: user?.email || "",
     },
   });

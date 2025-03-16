@@ -20,7 +20,7 @@ import {
 } from "lucide-react";
 
 const DashboardSidebar = () => {
-  const { user, signOut } = useAuth();
+  const { user, getUserName, signOut } = useAuth();
   const location = useLocation();
 
   const navItems = [
@@ -85,10 +85,10 @@ const DashboardSidebar = () => {
         <div className="flex flex-col space-y-4">
           <div className="flex items-center gap-3 rounded-md px-3 py-2">
             <div className="flex-shrink-0 h-8 w-8 rounded-full bg-finmate-200 dark:bg-finmate-800 flex items-center justify-center">
-              {user?.name?.[0] || user?.email?.[0] || "U"}
+              {getUserName()[0] || "U"}
             </div>
             <div className="truncate">
-              <div className="text-sm font-medium">{user?.name || "User"}</div>
+              <div className="text-sm font-medium">{getUserName() || "User"}</div>
               <div className="text-xs text-sidebar-foreground/70 truncate">{user?.email}</div>
             </div>
           </div>
