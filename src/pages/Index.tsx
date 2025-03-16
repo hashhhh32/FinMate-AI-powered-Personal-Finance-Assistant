@@ -6,47 +6,57 @@ import { Button } from "@/components/ui/button";
 import LandingNavbar from "@/components/landing/LandingNavbar";
 import FeatureCard from "@/components/landing/FeatureCard";
 import TestimonialCard from "@/components/landing/TestimonialCard";
-import { ChevronRight, PieChart, TrendingUp, Shield, Bot, BarChart } from "lucide-react";
+import { ChevronRight, PieChart, TrendingUp, Shield, Bot, BarChart, CreditCard, DollarSign, Briefcase } from "lucide-react";
 
 const Index = () => {
   const { user } = useAuth();
 
   const features = [
     {
-      icon: <PieChart className="h-8 w-8 text-finmate-500" />,
-      title: "Smart Budgeting",
-      description: "AI-powered budget recommendations based on your spending patterns and financial goals."
+      icon: <DollarSign className="h-8 w-8 text-finmate-500" />,
+      title: "AI Expense Tracking",
+      description: "Automatically categorize expenses and get AI-powered insights on your spending patterns."
     },
     {
       icon: <TrendingUp className="h-8 w-8 text-finmate-500" />,
-      title: "Investment Insights",
-      description: "Personalized investment suggestions and market analyses tailored to your risk profile."
+      title: "Stock Predictions",
+      description: "AI-driven stock market predictions with risk analysis and real-time market data."
     },
     {
-      icon: <Shield className="h-8 w-8 text-finmate-500" />,
-      title: "Fraud Protection",
-      description: "Advanced anomaly detection to identify suspicious activities in your financial accounts."
+      icon: <Briefcase className="h-8 w-8 text-finmate-500" />,
+      title: "Portfolio Management",
+      description: "Track, manage, and optimize your investment portfolio with AI-driven recommendations."
+    },
+    {
+      icon: <CreditCard className="h-8 w-8 text-finmate-500" />,
+      title: "Credit Score Prediction",
+      description: "Predict your credit score and get personalized tips to improve your creditworthiness."
     },
     {
       icon: <Bot className="h-8 w-8 text-finmate-500" />,
       title: "AI Financial Assistant",
-      description: "24/7 virtual assistant to answer financial questions and provide personalized advice."
+      description: "Chat with our AI assistant to manage stocks, get financial advice, and execute trades."
+    },
+    {
+      icon: <PieChart className="h-8 w-8 text-finmate-500" />,
+      title: "Budget Management",
+      description: "Create and track budgets with AI recommendations to improve your financial health."
     }
   ];
 
   const testimonials = [
     {
-      quote: "FinMate has completely transformed how I manage my finances. The AI recommendations are spot-on!",
+      quote: "FinMate's AI stock predictions have helped me grow my portfolio by 22% in just eight months. The risk analysis is incredibly accurate!",
       author: "Sarah Johnson",
       role: "Small Business Owner"
     },
     {
-      quote: "The investment insights helped me grow my portfolio by 18% in just six months. Incredible value.",
+      quote: "The credit score prediction tool helped me understand exactly what I needed to improve. My score is up 85 points in 6 months!",
       author: "Michael Chen",
       role: "Tech Professional"
     },
     {
-      quote: "I've tried many financial apps, but FinMate's AI assistant actually understands my goals and helps me achieve them.",
+      quote: "The AI chatbot makes investing so easy. I can buy stocks and get financial advice without needing to understand complex market terms.",
       author: "Alex Rodriguez",
       role: "Freelancer"
     }
@@ -62,10 +72,10 @@ const Index = () => {
           <div className="flex flex-col items-center text-center space-y-8">
             <div className="space-y-4 max-w-3xl">
               <h1 className="text-4xl md:text-6xl font-bold tracking-tighter gradient-text animate-fade-up">
-                Your AI Financial Assistant
+                AI-Powered Financial Management
               </h1>
               <p className="text-xl md:text-2xl text-gray-600 dark:text-gray-400 animate-fade-up" style={{ animationDelay: "0.1s" }}>
-                FinMate leverages AI to simplify your finances, optimize your investments, and help you achieve your financial goals.
+                FinMate uses AI to track expenses, predict stocks, manage your portfolio, forecast your credit score, and provide personalized financial advice.
               </p>
             </div>
             <div className="flex flex-col sm:flex-row gap-4 animate-fade-up" style={{ animationDelay: "0.2s" }}>
@@ -97,13 +107,13 @@ const Index = () => {
         <div className="container px-4 md:px-6">
           <div className="text-center mb-12">
             <h2 className="text-3xl font-bold tracking-tighter md:text-4xl gradient-text">
-              Powered by AI, Built for You
+              Powered by Advanced AI Technology
             </h2>
             <p className="mt-4 text-lg text-gray-600 dark:text-gray-400 max-w-lg mx-auto">
               Discover how FinMate's intelligent features transform your financial management.
             </p>
           </div>
-          <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3">
             {features.map((feature, index) => (
               <FeatureCard
                 key={index}
@@ -123,31 +133,38 @@ const Index = () => {
           <div className="flex flex-col lg:flex-row gap-12 items-center">
             <div className="lg:w-1/2 space-y-6">
               <h2 className="text-3xl font-bold tracking-tighter md:text-4xl gradient-text">
-                Your Finances at a Glance
+                Your Complete Financial Dashboard
               </h2>
               <p className="text-lg text-gray-600 dark:text-gray-400">
-                FinMate's intuitive dashboard gives you a comprehensive overview of your financial health with powerful visualizations and insights.
+                FinMate's comprehensive dashboard gives you a complete view of your financial health with powerful visualizations and AI-driven insights.
               </p>
               <div className="space-y-4">
                 <div className="flex items-start gap-2">
                   <BarChart className="h-5 w-5 text-finmate-500 mt-1" />
                   <div>
-                    <h3 className="font-medium">Real-time Expense Tracking</h3>
-                    <p className="text-sm text-gray-600 dark:text-gray-400">Monitor your spending patterns as they happen.</p>
+                    <h3 className="font-medium">Expense Analysis</h3>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">AI-powered categorization and spending insights.</p>
                   </div>
                 </div>
                 <div className="flex items-start gap-2">
                   <TrendingUp className="h-5 w-5 text-finmate-500 mt-1" />
                   <div>
-                    <h3 className="font-medium">Investment Performance</h3>
-                    <p className="text-sm text-gray-600 dark:text-gray-400">Track returns and get AI-powered investment recommendations.</p>
+                    <h3 className="font-medium">Stock Predictions</h3>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">Get AI-driven stock recommendations with risk analysis.</p>
                   </div>
                 </div>
                 <div className="flex items-start gap-2">
-                  <PieChart className="h-5 w-5 text-finmate-500 mt-1" />
+                  <CreditCard className="h-5 w-5 text-finmate-500 mt-1" />
                   <div>
-                    <h3 className="font-medium">Budget Allocation</h3>
-                    <p className="text-sm text-gray-600 dark:text-gray-400">Visual breakdowns of your spending categories.</p>
+                    <h3 className="font-medium">Credit Score Forecast</h3>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">Predict and improve your credit score with personalized tips.</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <Bot className="h-5 w-5 text-finmate-500 mt-1" />
+                  <div>
+                    <h3 className="font-medium">AI Financial Assistant</h3>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">Chat with our AI to get advice and manage your investments.</p>
                   </div>
                 </div>
               </div>
@@ -198,7 +215,7 @@ const Index = () => {
         <div className="container px-4 md:px-6">
           <div className="flex flex-col items-center text-center space-y-6 max-w-3xl mx-auto">
             <h2 className="text-3xl font-bold tracking-tighter md:text-4xl">
-              Ready to Transform Your Financial Future?
+              Ready to Transform Your Financial Future with AI?
             </h2>
             <p className="text-lg text-finmate-100">
               Join FinMate today and experience the power of AI-driven financial management.

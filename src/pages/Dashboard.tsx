@@ -9,6 +9,11 @@ import DashboardTransactions from "@/components/dashboard/DashboardTransactions"
 import DashboardBudget from "@/components/dashboard/DashboardBudget";
 import DashboardInvestments from "@/components/dashboard/DashboardInvestments";
 import DashboardSettings from "@/components/dashboard/DashboardSettings";
+import DashboardExpenses from "@/components/dashboard/DashboardExpenses";
+import DashboardStocks from "@/components/dashboard/DashboardStocks";
+import DashboardPortfolio from "@/components/dashboard/DashboardPortfolio";
+import DashboardCredit from "@/components/dashboard/DashboardCredit";
+import DashboardAssistant from "@/components/dashboard/DashboardAssistant";
 
 const Dashboard = () => {
   return (
@@ -24,6 +29,11 @@ const Dashboard = () => {
               <Route path="/budget" element={<DashboardBudget />} />
               <Route path="/investments" element={<DashboardInvestments />} />
               <Route path="/settings" element={<DashboardSettings />} />
+              <Route path="/expenses" element={<DashboardExpenses />} />
+              <Route path="/stocks" element={<DashboardStocks />} />
+              <Route path="/portfolio" element={<DashboardPortfolio />} />
+              <Route path="/credit" element={<DashboardCredit />} />
+              <Route path="/assistant" element={<DashboardAssistant />} />
             </Routes>
           </main>
         </div>

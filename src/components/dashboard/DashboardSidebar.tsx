@@ -17,6 +17,10 @@ import {
   TrendingUp,
   Settings,
   LogOut,
+  CreditCard,
+  LineChart,
+  Briefcase,
+  MessageSquare,
 } from "lucide-react";
 
 const DashboardSidebar = () => {
@@ -30,9 +34,19 @@ const DashboardSidebar = () => {
       icon: <LayoutDashboard className="h-5 w-5" />,
     },
     {
-      name: "Transactions",
-      path: "/dashboard/transactions",
+      name: "Expense Tracking",
+      path: "/dashboard/expenses",
       icon: <DollarSign className="h-5 w-5" />,
+    },
+    {
+      name: "Stock Predictions",
+      path: "/dashboard/stocks",
+      icon: <LineChart className="h-5 w-5" />,
+    },
+    {
+      name: "Portfolio",
+      path: "/dashboard/portfolio",
+      icon: <Briefcase className="h-5 w-5" />,
     },
     {
       name: "Budget",
@@ -40,9 +54,19 @@ const DashboardSidebar = () => {
       icon: <PieChart className="h-5 w-5" />,
     },
     {
+      name: "Credit Score",
+      path: "/dashboard/credit",
+      icon: <CreditCard className="h-5 w-5" />,
+    },
+    {
       name: "Investments",
       path: "/dashboard/investments",
       icon: <TrendingUp className="h-5 w-5" />,
+    },
+    {
+      name: "AI Assistant",
+      path: "/dashboard/assistant",
+      icon: <MessageSquare className="h-5 w-5" />,
     },
     {
       name: "Settings",
