@@ -1,16 +1,13 @@
 
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
+import { Session, User } from "@supabase/supabase-js";
 
 // Define types
-type User = {
-  id: string;
-  email: string;
-  name?: string;
-} | null;
-
 type AuthContextType = {
-  user: User;
+  user: User | null;
+  session: Session | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, name: string) => Promise<void>;
@@ -22,45 +19,49 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 // Provider component
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
-  const [user, setUser] = useState<User>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
   // Check for existing session on mount
   useEffect(() => {
-    // Mock checking for a stored user in localStorage
-    const storedUser = localStorage.getItem("finmate_user");
-    if (storedUser) {
-      try {
-        setUser(JSON.parse(storedUser));
-      } catch (error) {
-        console.error("Failed to parse stored user:", error);
-        localStorage.removeItem("finmate_user");
+    const setData = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      setSession(session);
+      setUser(session?.user ?? null);
+      setLoading(false);
+    };
+
+    setData();
+
+    // Set up auth state listener
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        setSession(session);
+        setUser(session?.user ?? null);
+        setLoading(false);
       }
-    }
-    setLoading(false);
+    );
+
+    return () => subscription.unsubscribe();
   }, []);
 
   // Sign in function
   const signIn = async (email: string, password: string) => {
     try {
       setLoading(true);
-      // Mock authentication - would be replaced with Supabase
-      if (email && password) {
-        // For demo, we'll accept any non-empty email/password
-        const mockUser = {
-          id: "user-123",
-          email,
-          name: email.split('@')[0]
-        };
-        
-        localStorage.setItem("finmate_user", JSON.stringify(mockUser));
-        setUser(mockUser);
-        toast.success("Successfully signed in!");
-      } else {
-        throw new Error("Invalid credentials");
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) {
+        throw error;
       }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to sign in";
+
+      toast.success("Successfully signed in!");
+    } catch (error: any) {
+      const message = error?.message || "Failed to sign in";
       toast.error(message);
       throw error;
     } finally {
@@ -72,22 +73,24 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const signUp = async (email: string, password: string, name: string) => {
     try {
       setLoading(true);
-      // Mock registration - would be replaced with Supabase
-      if (email && password) {
-        const mockUser = {
-          id: "user-" + Math.floor(Math.random() * 1000),
-          email,
-          name
-        };
-        
-        localStorage.setItem("finmate_user", JSON.stringify(mockUser));
-        setUser(mockUser);
-        toast.success("Account created successfully!");
-      } else {
-        throw new Error("Invalid registration details");
+      
+      const { error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            name,
+          },
+        }
+      });
+
+      if (error) {
+        throw error;
       }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to create account";
+
+      toast.success("Account created successfully! Please check your email for verification.");
+    } catch (error: any) {
+      const message = error?.message || "Failed to create account";
       toast.error(message);
       throw error;
     } finally {
@@ -99,12 +102,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const signOut = async () => {
     try {
       setLoading(true);
-      // Mock sign out - would be replaced with Supabase
-      localStorage.removeItem("finmate_user");
-      setUser(null);
+      const { error } = await supabase.auth.signOut();
+      
+      if (error) {
+        throw error;
+      }
+      
       toast.success("Signed out successfully");
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to sign out";
+    } catch (error: any) {
+      const message = error?.message || "Failed to sign out";
       toast.error(message);
     } finally {
       setLoading(false);
@@ -113,6 +119,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const value = {
     user,
+    session,
     loading,
     signIn,
     signUp,

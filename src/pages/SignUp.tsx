@@ -38,7 +38,8 @@ const SignUp = () => {
     try {
       setIsLoading(true);
       await signUp(email, password, name);
-      navigate("/dashboard");
+      toast.success("Please check your email to verify your account");
+      navigate("/signin");
     } catch (error) {
       // Error is already handled in the AuthContext
       console.error("Sign up failed:", error);
