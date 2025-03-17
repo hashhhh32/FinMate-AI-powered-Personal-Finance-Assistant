@@ -7,6 +7,9 @@ import { Input } from "@/components/ui/input";
 import { TrendingUp, TrendingDown, AlertCircle, RefreshCw, BarChart, Search } from "lucide-react";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, AreaChart, Area } from "recharts";
 import { useStockPredictions } from "@/hooks/use-stock-predictions";
+import { WatchlistManager } from "./WatchlistManager";
+import { MarketIndicators } from "./MarketIndicators";
+import { MarketNews } from "./MarketNews";
 
 const stockInfo = {
   "AAPL": { name: "Apple Inc.", risk: "Low" },
@@ -15,24 +18,6 @@ const stockInfo = {
   "TSLA": { name: "Tesla Inc.", risk: "High" },
   "NVDA": { name: "NVIDIA Corp.", risk: "Medium" },
 };
-
-const marketNews = [
-  {
-    title: "Fed signals potential rate cuts later this year",
-    source: "Market Watch",
-    time: "2 hours ago",
-  },
-  {
-    title: "Tech stocks rally on strong earnings reports",
-    source: "Bloomberg",
-    time: "4 hours ago",
-  },
-  {
-    title: "AI chip demand drives semiconductor sector growth",
-    source: "Reuters",
-    time: "6 hours ago",
-  },
-];
 
 const DashboardStocks = () => {
   const {
@@ -83,13 +68,15 @@ const DashboardStocks = () => {
       ? Math.min(95, 60 + Math.abs(predictionChange) * 2)
       : Math.floor(65 + Math.random() * 20);
     
+    const info = stockInfo[symbol as keyof typeof stockInfo];
+    
     return {
       symbol,
-      name: stockInfo[symbol as keyof typeof stockInfo]?.name || `${symbol} Stock`,
+      name: info?.name || `${symbol} Stock`,
       price: currentPrice,
       change,
       prediction: predictionDirection,
-      risk: stockInfo[symbol as keyof typeof stockInfo]?.risk || "Medium",
+      risk: info?.risk || "Medium",
       confidence,
     };
   }).filter(stock => 
@@ -141,9 +128,9 @@ const DashboardStocks = () => {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">Stock Market Predictions</h2>
+          <h2 className="text-3xl font-bold tracking-tight">Stock Market Insights</h2>
           <p className="text-muted-foreground">
-            AI-driven stock predictions and market insights
+            AI-driven stock predictions, market trends, and financial news
           </p>
         </div>
         <div className="flex space-x-2">
@@ -158,24 +145,32 @@ const DashboardStocks = () => {
         </div>
       </div>
 
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          placeholder="Search stocks by symbol or name..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="pl-10 mb-4"
-        />
-      </div>
+      {/* Market Indicators Section */}
+      <MarketIndicators />
 
-      <Tabs defaultValue="predictions" className="space-y-4">
+      <Tabs defaultValue="watchlist" className="space-y-4">
         <TabsList>
+          <TabsTrigger value="watchlist">Watchlist</TabsTrigger>
           <TabsTrigger value="predictions">AI Predictions</TabsTrigger>
           <TabsTrigger value="market">Market Data</TabsTrigger>
           <TabsTrigger value="news">Market News</TabsTrigger>
         </TabsList>
         
+        <TabsContent value="watchlist" className="space-y-4">
+          <WatchlistManager />
+        </TabsContent>
+        
         <TabsContent value="predictions" className="space-y-4">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Filter predictions by symbol or name..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-10 mb-4"
+            />
+          </div>
+          
           {isLoading ? (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
               {[1, 2, 3].map((i) => (
@@ -357,24 +352,7 @@ const DashboardStocks = () => {
         </TabsContent>
 
         <TabsContent value="news" className="space-y-4">
-          <div className="grid gap-4 grid-cols-1">
-            {marketNews.map((news, index) => (
-              <Card key={index}>
-                <CardHeader>
-                  <div className="flex justify-between items-start">
-                    <CardTitle className="text-lg font-medium">{news.title}</CardTitle>
-                    <AlertCircle className="h-4 w-4 text-muted-foreground" />
-                  </div>
-                  <CardDescription>{news.source} • {news.time}</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm text-muted-foreground">
-                    This news may impact market sentiment and stock prices in the short term. Our AI analysis suggests keeping a close watch on related sectors.
-                  </p>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+          <MarketNews />
         </TabsContent>
       </Tabs>
     </div>

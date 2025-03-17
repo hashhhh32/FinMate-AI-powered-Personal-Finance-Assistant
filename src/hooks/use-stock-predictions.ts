@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import { useWatchlist } from "@/hooks/use-watchlist";
 
 // Define types for stock data
 type HistoricalStockData = {
@@ -34,15 +35,29 @@ export function useStockPredictions() {
   const [historicalData, setHistoricalData] = useState<Record<string, HistoricalStockData[]>>({});
   const [realtimePrices, setRealtimePrices] = useState<Record<string, RealtimeStockPrice>>({});
   const [predictedPrices, setPredictedPrices] = useState<Record<string, PredictedStockPrice[]>>({});
-  const [watchlist, setWatchlist] = useState<string[]>(["AAPL", "MSFT", "NVDA", "AMZN", "TSLA"]);
+  const [watchlist, setWatchlist] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const { toast } = useToast();
   const { user } = useAuth();
+  const { watchlist: userWatchlist } = useWatchlist();
+
+  useEffect(() => {
+    // Sync watchlist from user's watchlist
+    if (userWatchlist && userWatchlist.length > 0) {
+      const symbols = userWatchlist.map(item => item.symbol);
+      setWatchlist(symbols);
+    } else {
+      // Default watchlist if user's is empty
+      setWatchlist(["AAPL", "MSFT", "NVDA", "AMZN", "TSLA"]);
+    }
+  }, [userWatchlist]);
 
   useEffect(() => {
     // Fetch initial data
-    fetchStockData();
+    if (watchlist.length > 0) {
+      fetchStockData();
+    }
 
     // Set up real-time subscriptions
     const realtimePricesChannel = supabase
@@ -52,17 +67,19 @@ export function useStockPredictions() {
         {
           event: '*',
           schema: 'public',
-          table: 'realtime_stock_prices',
-          filter: watchlist.map(symbol => `symbol=eq.${symbol}`).join(' OR ')
+          table: 'realtime_stock_prices'
         },
         (payload) => {
           if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
             const stockPrice = payload.new as RealtimeStockPrice;
-            console.log(`Received real-time price update for ${stockPrice.symbol}: $${stockPrice.price}`);
-            setRealtimePrices(prev => ({
-              ...prev,
-              [stockPrice.symbol]: stockPrice
-            }));
+            // Only update prices for stocks in the watchlist
+            if (watchlist.includes(stockPrice.symbol)) {
+              console.log(`Received real-time price update for ${stockPrice.symbol}: $${stockPrice.price}`);
+              setRealtimePrices(prev => ({
+                ...prev,
+                [stockPrice.symbol]: stockPrice
+              }));
+            }
           }
         }
       )
@@ -75,22 +92,24 @@ export function useStockPredictions() {
         {
           event: '*',
           schema: 'public',
-          table: 'predicted_stock_prices',
-          filter: watchlist.map(symbol => `symbol=eq.${symbol}`).join(' OR ')
+          table: 'predicted_stock_prices'
         },
         (payload) => {
           if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
             const prediction = payload.new as PredictedStockPrice;
-            console.log(`Received prediction update for ${prediction.symbol}: $${prediction.predicted_price} on ${new Date(prediction.timestamp).toLocaleDateString()}`);
-            setPredictedPrices(prev => {
-              const symbolPredictions = prev[prediction.symbol] || [];
-              return {
-                ...prev,
-                [prediction.symbol]: [...symbolPredictions, prediction].sort(
-                  (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-                )
-              };
-            });
+            // Only update predictions for stocks in the watchlist
+            if (watchlist.includes(prediction.symbol)) {
+              console.log(`Received prediction update for ${prediction.symbol}: $${prediction.predicted_price} on ${new Date(prediction.timestamp).toLocaleDateString()}`);
+              setPredictedPrices(prev => {
+                const symbolPredictions = prev[prediction.symbol] || [];
+                return {
+                  ...prev,
+                  [prediction.symbol]: [...symbolPredictions, prediction].sort(
+                    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+                  )
+                };
+              });
+            }
           }
         }
       )
@@ -295,7 +314,7 @@ export function useStockPredictions() {
       for (const update of updates) {
         await supabase
           .from('realtime_stock_prices')
-          .upsert([update], { onConflict: 'symbol' });
+          .upsert([update]);
       }
       
       toast({
