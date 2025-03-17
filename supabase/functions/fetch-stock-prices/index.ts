@@ -1,4 +1,3 @@
-
 // Follow the Supabase Edge Function format
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.7'
 
@@ -49,6 +48,8 @@ Deno.serve(async (req) => {
         
         if (!response.ok) {
           console.error(`Error fetching ${symbol}: ${response.status}`);
+          // Ensure we still have a fallback price even when API call fails
+          generateFallbackPrice(symbol, prices);
           continue;
         }
         
@@ -66,50 +67,29 @@ Deno.serve(async (req) => {
               symbol,
               price,
               timestamp: new Date().toISOString()
-            }, { onConflict: 'symbol' });
+            });
             
           if (upsertError) {
             console.error(`Error inserting ${symbol}:`, upsertError);
+            // If we can't insert, still keep the price in the response
           } else {
             console.log(`Successfully updated price for ${symbol}: $${price}`);
           }
         } else {
           console.error(`Missing price data for ${symbol}:`, data);
-          
-          // Fall back to simulated data if API doesn't return expected format
-          const basePrice = 
-            symbol === 'AAPL' ? 174.82 : 
-            symbol === 'MSFT' ? 328.79 : 
-            symbol === 'NVDA' ? 437.53 : 
-            symbol === 'AMZN' ? 132.65 : 
-            symbol === 'TSLA' ? 224.57 : 
-            100;
-            
-          // Add a small random variation (-1% to +1%)
-          const randomFactor = 1 + (Math.random() * 0.02 - 0.01);
-          prices[symbol] = parseFloat((basePrice * randomFactor).toFixed(2));
-          
-          // Store simulated price in Supabase
-          const { error: upsertError } = await supabase
-            .from('realtime_stock_prices')
-            .upsert({
-              symbol,
-              price: prices[symbol],
-              timestamp: new Date().toISOString()
-            }, { onConflict: 'symbol' });
-            
-          if (upsertError) {
-            console.error(`Error inserting simulated price for ${symbol}:`, upsertError);
-          } else {
-            console.log(`Stored simulated price for ${symbol}: $${prices[symbol]}`);
-          }
+          // Use fallback data when API doesn't return expected format
+          generateFallbackPrice(symbol, prices);
         }
       } catch (error) {
         console.error(`Error processing ${symbol}:`, error);
+        // Ensure we still have a fallback price even when an exception occurs
+        generateFallbackPrice(symbol, prices);
       }
       
       // Add a delay to respect API rate limits (5 calls per minute for free tier)
-      await new Promise(resolve => setTimeout(resolve, 12000));
+      if (symbols.indexOf(symbol) < symbols.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 12000));
+      }
     }
     
     return new Response(
@@ -129,3 +109,34 @@ Deno.serve(async (req) => {
     );
   }
 });
+
+// Helper function to generate fallback prices
+function generateFallbackPrice(symbol: string, prices: Record<string, number>) {
+  const basePrice = 
+    symbol === 'AAPL' ? 174.82 : 
+    symbol === 'MSFT' ? 328.79 : 
+    symbol === 'NVDA' ? 437.53 : 
+    symbol === 'AMZN' ? 132.65 : 
+    symbol === 'TSLA' ? 224.57 : 
+    100;
+    
+  // Add a small random variation (-1% to +1%)
+  const randomFactor = 1 + (Math.random() * 0.02 - 0.01);
+  prices[symbol] = parseFloat((basePrice * randomFactor).toFixed(2));
+  
+  // Store simulated price in Supabase
+  supabase
+    .from('realtime_stock_prices')
+    .upsert({
+      symbol,
+      price: prices[symbol],
+      timestamp: new Date().toISOString()
+    })
+    .then(({ error }) => {
+      if (error) {
+        console.error(`Error inserting simulated price for ${symbol}:`, error);
+      } else {
+        console.log(`Stored simulated price for ${symbol}: $${prices[symbol]}`);
+      }
+    });
+}
