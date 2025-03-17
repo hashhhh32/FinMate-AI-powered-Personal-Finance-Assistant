@@ -1,1 +1,28 @@
+
 project_id = "wsywtdxkxznowdmtfbiy"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "storage"]
+
+[db]
+port = 54322
+
+[studio]
+enabled = true
+port = 54323
+
+[inbucket]
+enabled = true
+port = 54324
+
+[storage]
+enabled = true
+
+[functions]
+[functions.fetch-stock-prices]
+verify_jwt = false
+
+[functions.generate-stock-predictions]
+verify_jwt = false

@@ -36,6 +36,7 @@ export function useStockPredictions() {
   const [predictedPrices, setPredictedPrices] = useState<Record<string, PredictedStockPrice[]>>({});
   const [watchlist, setWatchlist] = useState<string[]>(["AAPL", "MSFT", "NVDA", "AMZN", "TSLA"]);
   const [isLoading, setIsLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const { toast } = useToast();
   const { user } = useAuth();
 
@@ -102,6 +103,7 @@ export function useStockPredictions() {
   const fetchStockData = async () => {
     try {
       setIsLoading(true);
+      setFetchError(null);
       
       // Fetch historical data for each stock in watchlist
       const historicalDataBySymbol: Record<string, HistoricalStockData[]> = {};
@@ -170,6 +172,7 @@ export function useStockPredictions() {
         description: error.message,
         variant: "destructive"
       });
+      setFetchError(error.message);
       setIsLoading(false);
     }
   };
@@ -178,10 +181,88 @@ export function useStockPredictions() {
     setWatchlist(symbols);
   };
 
-  // Simulate updating real-time prices (for demo purposes)
+  // Fetch real-time stock prices from external API
+  const fetchRealTimeStockPrices = async () => {
+    try {
+      setIsLoading(true);
+      
+      // Call the Supabase Edge Function that fetches data from financial API
+      const { data, error } = await supabase.functions.invoke('fetch-stock-prices', {
+        body: { symbols: watchlist }
+      });
+      
+      if (error) throw error;
+      
+      if (data && data.prices) {
+        // Update prices in Supabase
+        for (const symbol in data.prices) {
+          const price = data.prices[symbol];
+          
+          await supabase
+            .from('realtime_stock_prices')
+            .upsert([{
+              symbol,
+              price: parseFloat(price),
+              timestamp: new Date().toISOString()
+            }], { onConflict: 'symbol' });
+        }
+        
+        toast({
+          title: "Stock prices updated",
+          description: "Latest market data has been refreshed"
+        });
+      }
+      
+      await fetchStockData(); // Refresh data from database
+      setIsLoading(false);
+    } catch (error: any) {
+      toast({
+        title: "Error updating stock prices",
+        description: error.message,
+        variant: "destructive"
+      });
+      setIsLoading(false);
+    }
+  };
+
+  // Generate predictions based on ML model
+  const generatePredictions = async () => {
+    try {
+      setIsLoading(true);
+      
+      // Call the ML prediction Edge Function
+      const { data, error } = await supabase.functions.invoke('generate-stock-predictions', {
+        body: { symbols: watchlist }
+      });
+      
+      if (error) throw error;
+      
+      toast({
+        title: "Predictions generated",
+        description: "New stock price predictions have been calculated"
+      });
+      
+      await fetchStockData(); // Refresh data from database
+      setIsLoading(false);
+    } catch (error: any) {
+      toast({
+        title: "Error generating predictions",
+        description: error.message,
+        variant: "destructive"
+      });
+      setIsLoading(false);
+    }
+  };
+
+  // For demo purposes only - simulate updates until API integration is complete
   const simulateRealtimeUpdates = async () => {
     try {
-      // In a real app, this would be replaced with live API calls
+      toast({
+        title: "Fetching stock prices",
+        description: "Connecting to market data..."
+      });
+      
+      // In a real app, this would be replaced with the fetchRealTimeStockPrices function
       const updates = watchlist.map(symbol => {
         const currentPrice = realtimePrices[symbol]?.price || 
           (symbol === 'AAPL' ? 174.82 : 
@@ -213,57 +294,10 @@ export function useStockPredictions() {
         description: "Latest market data has been refreshed"
       });
       
-    } catch (error: any) {
-      toast({
-        title: "Error updating stock prices",
-        description: error.message,
-        variant: "destructive"
-      });
-    }
-  };
-
-  // Generate predictions based on historical data (simplified model for demo)
-  const generatePredictions = async () => {
-    try {
-      const predictions = watchlist.map(symbol => {
-        const currentPrice = realtimePrices[symbol]?.price || 100;
-        
-        // Simple trend-based prediction (7 days into future)
-        const futurePredictions = [1, 3, 7].map(days => {
-          // Random trend between -5% and +15% (slightly bullish)
-          const trend = (Math.random() * 0.20 - 0.05);
-          const predictedPrice = Number((currentPrice * (1 + trend)).toFixed(2));
-          
-          // Calculate future date
-          const futureDate = new Date();
-          futureDate.setDate(futureDate.getDate() + days);
-          
-          return {
-            symbol,
-            predicted_price: predictedPrice,
-            timestamp: futureDate.toISOString()
-          };
-        });
-        
-        return futurePredictions;
-      }).flat();
-      
-      // Update predictions in database
-      for (const prediction of predictions) {
-        await supabase
-          .from('predicted_stock_prices')
-          .insert([prediction]);
-      }
-      
-      toast({
-        title: "Predictions generated",
-        description: "New stock price predictions have been calculated"
-      });
-      
       await fetchStockData();
     } catch (error: any) {
       toast({
-        title: "Error generating predictions",
+        title: "Error updating stock prices",
         description: error.message,
         variant: "destructive"
       });
@@ -276,8 +310,10 @@ export function useStockPredictions() {
     predictedPrices,
     watchlist,
     isLoading,
+    fetchError,
     updateWatchlist,
     fetchStockData,
+    fetchRealTimeStockPrices,
     simulateRealtimeUpdates,
     generatePredictions
   };
