@@ -66,6 +66,39 @@ export type Database = {
         }
         Relationships: []
       }
+      historical_stock_data: {
+        Row: {
+          close: number
+          high: number
+          id: string
+          low: number
+          open: number
+          symbol: string
+          timestamp: string
+          volume: number
+        }
+        Insert: {
+          close: number
+          high: number
+          id?: string
+          low: number
+          open: number
+          symbol: string
+          timestamp: string
+          volume: number
+        }
+        Update: {
+          close?: number
+          high?: number
+          id?: string
+          low?: number
+          open?: number
+          symbol?: string
+          timestamp?: string
+          volume?: number
+        }
+        Relationships: []
+      }
       portfolio_holdings: {
         Row: {
           company_name: string
@@ -148,6 +181,48 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      predicted_stock_prices: {
+        Row: {
+          id: string
+          predicted_price: number
+          symbol: string
+          timestamp: string
+        }
+        Insert: {
+          id?: string
+          predicted_price: number
+          symbol: string
+          timestamp: string
+        }
+        Update: {
+          id?: string
+          predicted_price?: number
+          symbol?: string
+          timestamp?: string
+        }
+        Relationships: []
+      }
+      realtime_stock_prices: {
+        Row: {
+          id: string
+          price: number
+          symbol: string
+          timestamp: string
+        }
+        Insert: {
+          id?: string
+          price: number
+          symbol: string
+          timestamp: string
+        }
+        Update: {
+          id?: string
+          price?: number
+          symbol?: string
+          timestamp?: string
+        }
+        Relationships: []
       }
     }
     Views: {

@@ -127,7 +127,8 @@ export function usePortfolio() {
       const formattedTransactions = transactionsData?.map(transaction => ({
         ...transaction,
         shares: Number(transaction.shares),
-        price: Number(transaction.price)
+        price: Number(transaction.price),
+        transaction_type: transaction.transaction_type as 'buy' | 'sell'
       })) || [];
       
       setHoldings(formattedHoldings);
@@ -201,13 +202,14 @@ export function usePortfolio() {
     return colors[Math.floor(Math.random() * colors.length)];
   };
 
-  const addHolding = async (newHolding: Omit<PortfolioHolding, 'id' | 'created_at' | 'last_updated'>) => {
+  const addHolding = async (newHolding: Omit<PortfolioHolding, 'id' | 'created_at' | 'last_updated' | 'current_price'>) => {
     try {
       const { data, error } = await supabase
         .from('portfolio_holdings')
         .insert([
           { 
             ...newHolding,
+            current_price: null,
             user_id: user?.id
           }
         ])

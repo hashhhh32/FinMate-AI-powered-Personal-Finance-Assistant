@@ -42,13 +42,13 @@ export type PortfolioHolding = {
   purchase_price: number;
   purchase_date: string;
   current_price: number | null;
-  last_updated: string;
+  last_updated: string | null;
   created_at: string;
 };
 
 export type PortfolioTransaction = {
   id: string;
-  holding_id: string;
+  holding_id: string | null;
   symbol: string;
   transaction_type: 'buy' | 'sell';
   shares: number;
