@@ -41,7 +41,7 @@ const DashboardStocks = () => {
     predictedPrices,
     watchlist,
     isLoading,
-    simulateRealtimeUpdates,
+    fetchRealTimeStockPrices,
     generatePredictions
   } = useStockPredictions();
 
@@ -147,7 +147,7 @@ const DashboardStocks = () => {
           </p>
         </div>
         <div className="flex space-x-2">
-          <Button onClick={simulateRealtimeUpdates} variant="outline" size="sm" className="hidden md:flex">
+          <Button onClick={fetchRealTimeStockPrices} variant="outline" size="sm" className="hidden md:flex">
             <RefreshCw className="h-4 w-4 mr-2" />
             Refresh Prices
           </Button>
@@ -274,7 +274,7 @@ const DashboardStocks = () => {
                     margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
                   >
                     <defs>
-                      {watchlist.map((symbol, index) => (
+                      {watchlist.map((symbol) => (
                         <React.Fragment key={symbol}>
                           <linearGradient id={`color${symbol}`} x1="0" y1="0" x2="0" y2="1">
                             <stop offset="5%" stopColor={
@@ -316,7 +316,7 @@ const DashboardStocks = () => {
                     <CartesianGrid strokeDasharray="3 3" />
                     <Tooltip formatter={(value) => [`$${value}`, "Price"]} />
                     <Legend />
-                    {watchlist.map(symbol => (
+                    {watchlist.map((symbol) => (
                       <React.Fragment key={symbol}>
                         <Area 
                           type="monotone" 

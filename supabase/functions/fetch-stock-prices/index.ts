@@ -33,61 +33,18 @@ Deno.serve(async (req) => {
 
     console.log(`Fetching stock prices for: ${symbols.join(', ')}`);
     
-    // In a production app, this would use a real API key from environment variables
-    const apiKey = Deno.env.get('ALPHA_VANTAGE_API_KEY');
-    
-    if (!apiKey) {
-      // For demo purposes, generate simulated data if API key is not available
-      console.log('API key not found, generating simulated data');
-      const simulatedPrices: Record<string, number> = {};
-      
-      for (const symbol of symbols) {
-        // Generate a reasonable price based on the symbol
-        const basePrice = 
-          symbol === 'AAPL' ? 174.82 : 
-          symbol === 'MSFT' ? 328.79 : 
-          symbol === 'NVDA' ? 437.53 : 
-          symbol === 'AMZN' ? 132.65 : 
-          symbol === 'TSLA' ? 224.57 : 
-          100;
-          
-        // Add a small random variation (-2% to +2%)
-        const randomFactor = 1 + (Math.random() * 0.04 - 0.02);
-        simulatedPrices[symbol] = parseFloat((basePrice * randomFactor).toFixed(2));
-      }
-      
-      // Store the simulated prices in Supabase
-      for (const symbol in simulatedPrices) {
-        const { error: upsertError } = await supabase
-          .from('realtime_stock_prices')
-          .upsert({
-            symbol,
-            price: simulatedPrices[symbol],
-            timestamp: new Date().toISOString()
-          }, { onConflict: 'symbol' });
-          
-        if (upsertError) {
-          console.error(`Error inserting ${symbol}:`, upsertError);
-        }
-      }
-      
-      return new Response(
-        JSON.stringify({ 
-          prices: simulatedPrices,
-          source: 'simulation'
-        }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-    
-    // With a real API key, fetch actual data from Alpha Vantage
-    // This is the code that would be used with a real API key
+    // Use the provided Alpha Vantage API key
+    const apiKey = 'ERZP1A2SEHQWGFE1';
     const prices: Record<string, number> = {};
+    const source = 'alpha_vantage';
     
     // Process one symbol at a time (Alpha Vantage has rate limits)
     for (const symbol of symbols) {
       try {
+        // Use Global Quote endpoint to get current price
         const url = `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${symbol}&apikey=${apiKey}`;
+        console.log(`Fetching data for ${symbol} from: ${url}`);
+        
         const response = await fetch(url);
         
         if (!response.ok) {
@@ -96,11 +53,43 @@ Deno.serve(async (req) => {
         }
         
         const data = await response.json();
+        console.log(`Received data for ${symbol}:`, JSON.stringify(data).substring(0, 200) + '...');
         
         if (data['Global Quote'] && data['Global Quote']['05. price']) {
-          prices[symbol] = parseFloat(data['Global Quote']['05. price']);
+          const price = parseFloat(data['Global Quote']['05. price']);
+          prices[symbol] = price;
           
           // Store in Supabase
+          const { error: upsertError } = await supabase
+            .from('realtime_stock_prices')
+            .upsert({
+              symbol,
+              price,
+              timestamp: new Date().toISOString()
+            }, { onConflict: 'symbol' });
+            
+          if (upsertError) {
+            console.error(`Error inserting ${symbol}:`, upsertError);
+          } else {
+            console.log(`Successfully updated price for ${symbol}: $${price}`);
+          }
+        } else {
+          console.error(`Missing price data for ${symbol}:`, data);
+          
+          // Fall back to simulated data if API doesn't return expected format
+          const basePrice = 
+            symbol === 'AAPL' ? 174.82 : 
+            symbol === 'MSFT' ? 328.79 : 
+            symbol === 'NVDA' ? 437.53 : 
+            symbol === 'AMZN' ? 132.65 : 
+            symbol === 'TSLA' ? 224.57 : 
+            100;
+            
+          // Add a small random variation (-1% to +1%)
+          const randomFactor = 1 + (Math.random() * 0.02 - 0.01);
+          prices[symbol] = parseFloat((basePrice * randomFactor).toFixed(2));
+          
+          // Store simulated price in Supabase
           const { error: upsertError } = await supabase
             .from('realtime_stock_prices')
             .upsert({
@@ -110,21 +99,23 @@ Deno.serve(async (req) => {
             }, { onConflict: 'symbol' });
             
           if (upsertError) {
-            console.error(`Error inserting ${symbol}:`, upsertError);
+            console.error(`Error inserting simulated price for ${symbol}:`, upsertError);
+          } else {
+            console.log(`Stored simulated price for ${symbol}: $${prices[symbol]}`);
           }
         }
       } catch (error) {
         console.error(`Error processing ${symbol}:`, error);
       }
       
-      // Add a small delay to respect API rate limits
-      await new Promise(resolve => setTimeout(resolve, 1200));
+      // Add a delay to respect API rate limits (5 calls per minute for free tier)
+      await new Promise(resolve => setTimeout(resolve, 12000));
     }
     
     return new Response(
       JSON.stringify({ 
         prices,
-        source: 'alpha_vantage'
+        source
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );

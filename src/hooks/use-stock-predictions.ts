@@ -58,6 +58,7 @@ export function useStockPredictions() {
         (payload) => {
           if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
             const stockPrice = payload.new as RealtimeStockPrice;
+            console.log(`Received real-time price update for ${stockPrice.symbol}: $${stockPrice.price}`);
             setRealtimePrices(prev => ({
               ...prev,
               [stockPrice.symbol]: stockPrice
@@ -80,6 +81,7 @@ export function useStockPredictions() {
         (payload) => {
           if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
             const prediction = payload.new as PredictedStockPrice;
+            console.log(`Received prediction update for ${prediction.symbol}: $${prediction.predicted_price} on ${new Date(prediction.timestamp).toLocaleDateString()}`);
             setPredictedPrices(prev => {
               const symbolPredictions = prev[prediction.symbol] || [];
               return {
@@ -105,6 +107,8 @@ export function useStockPredictions() {
       setIsLoading(true);
       setFetchError(null);
       
+      console.log("Fetching stock data for watchlist:", watchlist);
+      
       // Fetch historical data for each stock in watchlist
       const historicalDataBySymbol: Record<string, HistoricalStockData[]> = {};
       
@@ -119,6 +123,7 @@ export function useStockPredictions() {
         if (error) throw error;
         
         historicalDataBySymbol[symbol] = data || [];
+        console.log(`Fetched ${data?.length || 0} historical data points for ${symbol}`);
       }
       
       setHistoricalData(historicalDataBySymbol);
@@ -139,6 +144,7 @@ export function useStockPredictions() {
         if (!latestPricesBySymbol[price.symbol] || 
             new Date(price.timestamp) > new Date(latestPricesBySymbol[price.symbol].timestamp)) {
           latestPricesBySymbol[price.symbol] = price;
+          console.log(`Latest price for ${price.symbol}: $${price.price}`);
         }
       });
       
@@ -163,10 +169,12 @@ export function useStockPredictions() {
         predictionsBySymbol[prediction.symbol].push(prediction);
       });
       
+      console.log("Fetched predictions for symbols:", Object.keys(predictionsBySymbol).join(", "));
       setPredictedPrices(predictionsBySymbol);
       
       setIsLoading(false);
     } catch (error: any) {
+      console.error("Error fetching stock data:", error);
       toast({
         title: "Error fetching stock data",
         description: error.message,
@@ -186,7 +194,9 @@ export function useStockPredictions() {
     try {
       setIsLoading(true);
       
-      // Call the Supabase Edge Function that fetches data from financial API
+      console.log("Fetching real-time prices for:", watchlist.join(", "));
+      
+      // Call the Supabase Edge Function that fetches data from Alpha Vantage
       const { data, error } = await supabase.functions.invoke('fetch-stock-prices', {
         body: { symbols: watchlist }
       });
@@ -194,28 +204,20 @@ export function useStockPredictions() {
       if (error) throw error;
       
       if (data && data.prices) {
-        // Update prices in Supabase
-        for (const symbol in data.prices) {
-          const price = data.prices[symbol];
-          
-          await supabase
-            .from('realtime_stock_prices')
-            .upsert([{
-              symbol,
-              price: parseFloat(price),
-              timestamp: new Date().toISOString()
-            }], { onConflict: 'symbol' });
-        }
+        console.log("Received prices from API:", data.prices);
         
         toast({
           title: "Stock prices updated",
-          description: "Latest market data has been refreshed"
+          description: `Latest market data has been refreshed for ${Object.keys(data.prices).length} stocks`
         });
+      } else {
+        console.warn("No price data received from API");
       }
       
       await fetchStockData(); // Refresh data from database
       setIsLoading(false);
     } catch (error: any) {
+      console.error("Error updating stock prices:", error);
       toast({
         title: "Error updating stock prices",
         description: error.message,
@@ -230,6 +232,8 @@ export function useStockPredictions() {
     try {
       setIsLoading(true);
       
+      console.log("Generating predictions for:", watchlist.join(", "));
+      
       // Call the ML prediction Edge Function
       const { data, error } = await supabase.functions.invoke('generate-stock-predictions', {
         body: { symbols: watchlist }
@@ -237,14 +241,19 @@ export function useStockPredictions() {
       
       if (error) throw error;
       
+      if (data && data.predictions) {
+        console.log("Received predictions:", data.predictions);
+      }
+      
       toast({
         title: "Predictions generated",
-        description: "New stock price predictions have been calculated"
+        description: "New stock price predictions have been calculated for your watchlist"
       });
       
       await fetchStockData(); // Refresh data from database
       setIsLoading(false);
     } catch (error: any) {
+      console.error("Error generating predictions:", error);
       toast({
         title: "Error generating predictions",
         description: error.message,
