@@ -1,4 +1,3 @@
-
 import React from "react";
 import { Route, Routes } from "react-router-dom";
 import { SidebarProvider } from "@/components/ui/sidebar";
@@ -19,8 +18,7 @@ import TradingAssistant from "@/components/trading/TradingAssistant";
 
 // Create a wrapper component for the Trading page
 const DashboardTrading = () => {
-  return (
-    <div className="space-y-6">
+  return <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-3xl font-bold tracking-tight">Trading Platform</h2>
@@ -44,14 +42,11 @@ const DashboardTrading = () => {
           </div>
         </div>
       </div>
-    </div>
-  );
+    </div>;
 };
-
 const Dashboard = () => {
-  return (
-    <SidebarProvider>
-      <div className="min-h-screen flex w-full">
+  return <SidebarProvider>
+      <div className="min-h-screen flex w-full bg-slate-300">
         <DashboardSidebar />
         <div className="flex-1 flex flex-col lg:ml-60">
           <DashboardHeader />
@@ -73,8 +68,6 @@ const Dashboard = () => {
           </main>
         </div>
       </div>
-    </SidebarProvider>
-  );
+    </SidebarProvider>;
 };
-
 export default Dashboard;
