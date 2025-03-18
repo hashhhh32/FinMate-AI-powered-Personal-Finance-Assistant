@@ -4,12 +4,14 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Bot, User, Send, DollarSign, TrendingUp, TrendingDown, Loader2 } from "lucide-react";
+import { Bot, User, Send, DollarSign, TrendingUp, TrendingDown, Loader2, AlertCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useTrading } from "@/hooks/use-trading";
 import VoiceInput from "./VoiceInput";
 import { format } from "date-fns";
 import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { useAuth } from "@/context/AuthContext";
 
 interface TradingAssistantProps {
   initialPrompt?: string;
@@ -17,9 +19,10 @@ interface TradingAssistantProps {
 
 const TradingAssistant: React.FC<TradingAssistantProps> = ({ initialPrompt }) => {
   const { toast } = useToast();
-  const { sendMessage, conversations, isProcessing, portfolio, recentOrders } = useTrading();
+  const { sendMessage, conversations, isProcessing, portfolio, recentOrders, refreshPortfolio, refreshOrders } = useTrading();
   const [input, setInput] = useState(initialPrompt || "");
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const { user } = useAuth();
 
   useEffect(() => {
     scrollToBottom();
@@ -40,7 +43,15 @@ const TradingAssistant: React.FC<TradingAssistantProps> = ({ initialPrompt }) =>
     if (!message.trim()) return;
     
     setInput("");
-    await sendMessage(message);
+    const response = await sendMessage(message);
+    
+    if (!response.success) {
+      toast({
+        title: "Error",
+        description: response.message,
+        variant: "destructive"
+      });
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -55,14 +66,56 @@ const TradingAssistant: React.FC<TradingAssistantProps> = ({ initialPrompt }) =>
     await sendMessage(transcript, 'voice');
   };
 
+  const handleRefresh = async () => {
+    try {
+      toast({
+        title: "Refreshing data",
+        description: "Fetching the latest trading information..."
+      });
+      
+      await Promise.all([
+        refreshPortfolio(),
+        refreshOrders()
+      ]);
+      
+      toast({
+        title: "Data refreshed",
+        description: "Trading information has been updated"
+      });
+    } catch (error) {
+      toast({
+        title: "Error refreshing data",
+        description: "There was a problem fetching the latest information",
+        variant: "destructive"
+      });
+    }
+  };
+
+  if (!user) {
+    return (
+      <Alert variant="destructive">
+        <AlertCircle className="h-4 w-4" />
+        <AlertTitle>Authentication Required</AlertTitle>
+        <AlertDescription>
+          Please sign in to use the trading assistant.
+        </AlertDescription>
+      </Alert>
+    );
+  }
+
   return (
     <div className="flex flex-col space-y-4 h-full">
       <Card className="flex flex-col flex-1">
-        <CardHeader>
-          <CardTitle>Trading Assistant</CardTitle>
-          <CardDescription>
-            Ask questions, get market data, or execute trades with text or voice commands
-          </CardDescription>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <div>
+            <CardTitle>Trading Assistant</CardTitle>
+            <CardDescription>
+              Ask questions, get market data, or execute trades with text or voice commands
+            </CardDescription>
+          </div>
+          <Button variant="outline" size="sm" onClick={handleRefresh}>
+            Refresh Data
+          </Button>
         </CardHeader>
         <CardContent className="flex-1 overflow-y-auto">
           <div className="space-y-4">

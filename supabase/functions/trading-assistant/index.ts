@@ -35,20 +35,47 @@ Deno.serve(async (req) => {
     // Get request body
     const { message, userId, messageType } = await req.json();
     
+    console.log('Received request:', { message, userId, messageType });
+    
     if (!message) {
       return new Response(
-        JSON.stringify({ error: 'Missing message' }),
+        JSON.stringify({ success: false, message: 'Missing message' }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
       );
     }
 
     if (!userId) {
       return new Response(
-        JSON.stringify({ error: 'User ID is required' }),
+        JSON.stringify({ success: false, message: 'User ID is required' }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
       );
     }
 
+    console.log('Processing message with Gemini API');
+    
+    // Check if API keys are properly set
+    if (!GEMINI_API_KEY) {
+      console.error('GEMINI_API_KEY is not set');
+      return new Response(
+        JSON.stringify({ 
+          success: false, 
+          message: "I can't process your request right now because the AI service is not configured properly. Please try again later."
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
+      );
+    }
+    
+    if (!ALPACA_API_KEY || !ALPACA_API_SECRET) {
+      console.error('Alpaca API credentials are not set');
+      return new Response(
+        JSON.stringify({ 
+          success: false, 
+          message: "I can't process your trading request right now because the trading service is not configured properly. Please try again later."
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
+      );
+    }
+    
     // Process the message using Gemini API to determine intent
     const intent = await processMessageWithGemini(message);
     
@@ -79,6 +106,8 @@ Deno.serve(async (req) => {
     // Store the conversation in Supabase
     await storeConversation(userId, message, response.message);
     
+    console.log('Returning response:', response);
+    
     return new Response(
       JSON.stringify(response),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -88,14 +117,17 @@ Deno.serve(async (req) => {
     console.error('Error in trading-assistant function:', error);
     
     return new Response(
-      JSON.stringify({ error: error.message }),
+      JSON.stringify({ 
+        success: false, 
+        message: `I'm having trouble processing your request right now. Please try again later. (Error: ${error.message})` 
+      }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
     );
   }
 });
 
 // Process message with Gemini API to determine intent
-async function processMessageWithGemini(message: string) {
+async function processMessageWithGemini(message) {
   try {
     if (!GEMINI_API_KEY) {
       throw new Error('GEMINI_API_KEY is not set');
@@ -128,6 +160,8 @@ async function processMessageWithGemini(message: string) {
       Only respond with the JSON object, no other text.
     `;
     
+    console.log('Sending prompt to Gemini API');
+    
     const response = await fetch(url, {
       method: 'POST',
       headers: {
@@ -155,6 +189,8 @@ async function processMessageWithGemini(message: string) {
     
     // Extract the JSON response from the text
     const textResponse = data.candidates[0].content.parts[0].text;
+    console.log('Gemini API response:', textResponse);
+    
     const jsonMatch = textResponse.match(/\{[\s\S]*\}/);
     
     if (jsonMatch) {
@@ -460,8 +496,10 @@ async function getGeneralResponse(message: string) {
 }
 
 // Store conversation in Supabase
-async function storeConversation(userId: string, userMessage: string, assistantResponse: string) {
+async function storeConversation(userId, userMessage, assistantResponse) {
   try {
+    console.log('Storing conversation in Supabase');
+    
     const { error } = await supabase
       .from('trading_conversations')
       .insert({

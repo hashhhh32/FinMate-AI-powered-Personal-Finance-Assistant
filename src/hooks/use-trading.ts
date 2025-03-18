@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/AuthContext";
@@ -168,12 +167,14 @@ export function useTrading() {
     try {
       setIsLoadingPortfolio(true);
       
+      console.log('Fetching portfolio data for user:', user.id);
+      
       // Fetch portfolio summary
       const { data: portfolioData, error: portfolioError } = await supabase
-        .rpc('get_trading_portfolio', { user_id_param: user.id })
-        .single();
+        .rpc('get_trading_portfolio', { user_id_param: user.id });
       
       if (portfolioError) {
+        console.error('Portfolio fetch error:', portfolioError);
         // If no portfolio found, it might be the first time
         if (portfolioError.code !== 'PGRST116') {
           throw portfolioError;
@@ -184,14 +185,19 @@ export function useTrading() {
       const { data: positionsData, error: positionsError } = await supabase
         .rpc('get_trading_positions', { user_id_param: user.id });
       
-      if (positionsError) throw positionsError;
+      if (positionsError) {
+        console.error('Positions fetch error:', positionsError);
+        throw positionsError;
+      }
       
-      if (portfolioData) {
+      console.log('Fetched portfolio data:', { portfolioData, positionsData });
+      
+      if (portfolioData && portfolioData.length > 0) {
         setPortfolio({
-          equity: portfolioData.equity,
-          cash: portfolioData.cash,
+          equity: portfolioData[0].equity,
+          cash: portfolioData[0].cash,
           positions: positionsData || [],
-          updated_at: portfolioData.updated_at
+          updated_at: portfolioData[0].updated_at
         });
       } else if (positionsData && positionsData.length > 0) {
         // If we have positions but no portfolio summary, calculate totals
@@ -224,12 +230,17 @@ export function useTrading() {
     if (!user) return;
 
     try {
-      const { data, error } = await supabase
-        .rpc('get_trading_orders', { user_id_param: user.id })
-        .order('created_at', { ascending: false })
-        .limit(10);
+      console.log('Fetching recent orders for user:', user.id);
       
-      if (error) throw error;
+      const { data, error } = await supabase
+        .rpc('get_trading_orders', { user_id_param: user.id });
+      
+      if (error) {
+        console.error('Orders fetch error:', error);
+        throw error;
+      }
+      
+      console.log('Fetched orders data:', data);
       
       // Type casting to ensure order_type is properly typed
       const typedOrders = data ? data.map(order => ({
@@ -253,15 +264,20 @@ export function useTrading() {
     if (!user) return;
 
     try {
-      const { data, error } = await supabase
-        .rpc('get_trading_conversations', { user_id_param: user.id })
-        .order('message_timestamp', { ascending: false })
-        .limit(20);
+      console.log('Fetching conversations for user:', user.id);
       
-      if (error) throw error;
+      const { data, error } = await supabase
+        .rpc('get_trading_conversations', { user_id_param: user.id });
+      
+      if (error) {
+        console.error('Conversations fetch error:', error);
+        throw error;
+      }
+      
+      console.log('Fetched conversations data:', data);
       
       // Format data into user/assistant pairs
-      const formattedConversations = data ? data.flatMap(item => [
+      const formattedConversations = data ? data.map(item => [
         {
           role: 'user' as const,
           content: item.user_message,
@@ -272,7 +288,7 @@ export function useTrading() {
           content: item.assistant_response,
           timestamp: item.message_timestamp
         }
-      ]) : [];
+      ]).flat() : [];
       
       // Sort by timestamp
       formattedConversations.sort((a, b) => 
@@ -302,6 +318,8 @@ export function useTrading() {
     try {
       setIsProcessing(true);
       
+      console.log('Sending message to trading assistant:', { message, userId: user.id, messageType });
+      
       const response = await supabase.functions.invoke('trading-assistant', {
         body: {
           message,
@@ -309,6 +327,8 @@ export function useTrading() {
           messageType
         }
       });
+      
+      console.log('Response from trading assistant:', response);
       
       if (response.error) {
         throw new Error(response.error.message);
