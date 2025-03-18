@@ -256,7 +256,62 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      get_trading_conversations: {
+        Args: {
+          user_id_param: string
+        }
+        Returns: {
+          id: string
+          user_id: string
+          user_message: string
+          assistant_response: string
+          message_timestamp: string
+        }[]
+      }
+      get_trading_orders: {
+        Args: {
+          user_id_param: string
+        }
+        Returns: {
+          id: string
+          user_id: string
+          order_id: string
+          symbol: string
+          quantity: number
+          price: number
+          order_type: string
+          status: string
+          created_at: string
+        }[]
+      }
+      get_trading_portfolio: {
+        Args: {
+          user_id_param: string
+        }
+        Returns: {
+          id: string
+          user_id: string
+          equity: number
+          cash: number
+          updated_at: string
+        }[]
+      }
+      get_trading_positions: {
+        Args: {
+          user_id_param: string
+        }
+        Returns: {
+          id: string
+          user_id: string
+          symbol: string
+          quantity: number
+          market_value: number
+          cost_basis: number
+          unrealized_pl: number
+          unrealized_plpc: number
+          updated_at: string
+        }[]
+      }
     }
     Enums: {
       [_ in never]: never

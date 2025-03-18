@@ -74,7 +74,7 @@ export type TradingConversation = {
   user_id: string;
   user_message: string;
   assistant_response: string;
-  timestamp: string;
+  message_timestamp: string;
 };
 
 export function useTrading() {
@@ -249,7 +249,7 @@ export function useTrading() {
     try {
       const { data, error } = await supabase
         .rpc('get_trading_conversations', { user_id_param: user.id })
-        .order('timestamp', { ascending: false })
+        .order('message_timestamp', { ascending: false })
         .limit(20);
       
       if (error) throw error;
@@ -259,12 +259,12 @@ export function useTrading() {
         {
           role: 'user' as const,
           content: item.user_message,
-          timestamp: item.timestamp
+          timestamp: item.message_timestamp
         },
         {
           role: 'assistant' as const,
           content: item.assistant_response,
-          timestamp: item.timestamp
+          timestamp: item.message_timestamp
         }
       ]) : [];
       
