@@ -1,4 +1,3 @@
-
 import React from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
@@ -7,63 +6,49 @@ import LandingNavbar from "@/components/landing/LandingNavbar";
 import FeatureCard from "@/components/landing/FeatureCard";
 import TestimonialCard from "@/components/landing/TestimonialCard";
 import { ChevronRight, PieChart, TrendingUp, Shield, Bot, BarChart, CreditCard, DollarSign, Briefcase } from "lucide-react";
-
 const Index = () => {
-  const { user } = useAuth();
-
-  const features = [
-    {
-      icon: <DollarSign className="h-8 w-8 text-finmate-500" />,
-      title: "AI Expense Tracking",
-      description: "Automatically categorize expenses and get AI-powered insights on your spending patterns."
-    },
-    {
-      icon: <TrendingUp className="h-8 w-8 text-finmate-500" />,
-      title: "Stock Predictions",
-      description: "AI-driven stock market predictions with risk analysis and real-time market data."
-    },
-    {
-      icon: <Briefcase className="h-8 w-8 text-finmate-500" />,
-      title: "Portfolio Management",
-      description: "Track, manage, and optimize your investment portfolio with AI-driven recommendations."
-    },
-    {
-      icon: <CreditCard className="h-8 w-8 text-finmate-500" />,
-      title: "Credit Score Prediction",
-      description: "Predict your credit score and get personalized tips to improve your creditworthiness."
-    },
-    {
-      icon: <Bot className="h-8 w-8 text-finmate-500" />,
-      title: "AI Financial Assistant",
-      description: "Chat with our AI assistant to manage stocks, get financial advice, and execute trades."
-    },
-    {
-      icon: <PieChart className="h-8 w-8 text-finmate-500" />,
-      title: "Budget Management",
-      description: "Create and track budgets with AI recommendations to improve your financial health."
-    }
-  ];
-
-  const testimonials = [
-    {
-      quote: "FinMate's AI stock predictions have helped me grow my portfolio by 22% in just eight months. The risk analysis is incredibly accurate!",
-      author: "Sarah Johnson",
-      role: "Small Business Owner"
-    },
-    {
-      quote: "The credit score prediction tool helped me understand exactly what I needed to improve. My score is up 85 points in 6 months!",
-      author: "Michael Chen",
-      role: "Tech Professional"
-    },
-    {
-      quote: "The AI chatbot makes investing so easy. I can buy stocks and get financial advice without needing to understand complex market terms.",
-      author: "Alex Rodriguez",
-      role: "Freelancer"
-    }
-  ];
-
-  return (
-    <div className="flex flex-col min-h-screen">
+  const {
+    user
+  } = useAuth();
+  const features = [{
+    icon: <DollarSign className="h-8 w-8 text-finmate-500" />,
+    title: "AI Expense Tracking",
+    description: "Automatically categorize expenses and get AI-powered insights on your spending patterns."
+  }, {
+    icon: <TrendingUp className="h-8 w-8 text-finmate-500" />,
+    title: "Stock Predictions",
+    description: "AI-driven stock market predictions with risk analysis and real-time market data."
+  }, {
+    icon: <Briefcase className="h-8 w-8 text-finmate-500" />,
+    title: "Portfolio Management",
+    description: "Track, manage, and optimize your investment portfolio with AI-driven recommendations."
+  }, {
+    icon: <CreditCard className="h-8 w-8 text-finmate-500" />,
+    title: "Credit Score Prediction",
+    description: "Predict your credit score and get personalized tips to improve your creditworthiness."
+  }, {
+    icon: <Bot className="h-8 w-8 text-finmate-500" />,
+    title: "AI Financial Assistant",
+    description: "Chat with our AI assistant to manage stocks, get financial advice, and execute trades."
+  }, {
+    icon: <PieChart className="h-8 w-8 text-finmate-500" />,
+    title: "Budget Management",
+    description: "Create and track budgets with AI recommendations to improve your financial health."
+  }];
+  const testimonials = [{
+    quote: "FinMate's AI stock predictions have helped me grow my portfolio by 22% in just eight months. The risk analysis is incredibly accurate!",
+    author: "Sarah Johnson",
+    role: "Small Business Owner"
+  }, {
+    quote: "The credit score prediction tool helped me understand exactly what I needed to improve. My score is up 85 points in 6 months!",
+    author: "Michael Chen",
+    role: "Tech Professional"
+  }, {
+    quote: "The AI chatbot makes investing so easy. I can buy stocks and get financial advice without needing to understand complex market terms.",
+    author: "Alex Rodriguez",
+    role: "Freelancer"
+  }];
+  return <div className="flex flex-col min-h-screen">
       <LandingNavbar />
       
       {/* Hero Section */}
@@ -74,19 +59,20 @@ const Index = () => {
               <h1 className="text-4xl md:text-6xl font-bold tracking-tighter gradient-text animate-fade-up">
                 AI-Powered Financial Management
               </h1>
-              <p className="text-xl md:text-2xl text-gray-600 dark:text-gray-400 animate-fade-up" style={{ animationDelay: "0.1s" }}>
+              <p className="text-xl md:text-2xl text-gray-600 dark:text-gray-400 animate-fade-up" style={{
+              animationDelay: "0.1s"
+            }}>
                 FinMate uses AI to track expenses, predict stocks, manage your portfolio, forecast your credit score, and provide personalized financial advice.
               </p>
             </div>
-            <div className="flex flex-col sm:flex-row gap-4 animate-fade-up" style={{ animationDelay: "0.2s" }}>
-              {user ? (
-                <Button asChild size="lg" className="gap-1">
+            <div className="flex flex-col sm:flex-row gap-4 animate-fade-up" style={{
+            animationDelay: "0.2s"
+          }}>
+              {user ? <Button asChild size="lg" className="gap-1">
                   <Link to="/dashboard">
                     Go to Dashboard <ChevronRight className="h-4 w-4" />
                   </Link>
-                </Button>
-              ) : (
-                <>
+                </Button> : <>
                   <Button asChild size="lg" className="gap-1">
                     <Link to="/signup">
                       Get Started <ChevronRight className="h-4 w-4" />
@@ -95,8 +81,7 @@ const Index = () => {
                   <Button asChild variant="outline" size="lg">
                     <Link to="/signin">Sign In</Link>
                   </Button>
-                </>
-              )}
+                </>}
             </div>
           </div>
         </div>
@@ -114,15 +99,7 @@ const Index = () => {
             </p>
           </div>
           <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3">
-            {features.map((feature, index) => (
-              <FeatureCard
-                key={index}
-                icon={feature.icon}
-                title={feature.title}
-                description={feature.description}
-                delay={index * 0.1}
-              />
-            ))}
+            {features.map((feature, index) => <FeatureCard key={index} icon={feature.icon} title={feature.title} description={feature.description} delay={index * 0.1} />)}
           </div>
         </div>
       </section>
@@ -175,11 +152,7 @@ const Index = () => {
               </Button>
             </div>
             <div className="lg:w-1/2 rounded-lg shadow-lg overflow-hidden border border-gray-200 dark:border-gray-800">
-              <img
-                src="https://placehold.co/800x600/3B82F6/FFFFFF.png?text=FinMate+Dashboard+Preview&font=Roboto"
-                alt="FinMate Dashboard Preview"
-                className="w-full h-auto"
-              />
+              <img alt="FinMate Dashboard Preview" className="w-full h-auto" src="/lovable-uploads/61c3d6ca-a8bd-4ad4-bf3f-d32658febea1.png" />
             </div>
           </div>
         </div>
@@ -197,15 +170,7 @@ const Index = () => {
             </p>
           </div>
           <div className="grid gap-8 md:grid-cols-3">
-            {testimonials.map((testimonial, index) => (
-              <TestimonialCard
-                key={index}
-                quote={testimonial.quote}
-                author={testimonial.author}
-                role={testimonial.role}
-                delay={index * 0.1}
-              />
-            ))}
+            {testimonials.map((testimonial, index) => <TestimonialCard key={index} quote={testimonial.quote} author={testimonial.author} role={testimonial.role} delay={index * 0.1} />)}
           </div>
         </div>
       </section>
@@ -275,8 +240,6 @@ const Index = () => {
           </div>
         </div>
       </footer>
-    </div>
-  );
+    </div>;
 };
-
 export default Index;
