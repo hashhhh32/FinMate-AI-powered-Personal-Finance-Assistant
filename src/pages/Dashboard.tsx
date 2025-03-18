@@ -14,6 +14,7 @@ import DashboardStocks from "@/components/dashboard/DashboardStocks";
 import DashboardPortfolio from "@/components/dashboard/DashboardPortfolio";
 import DashboardCredit from "@/components/dashboard/DashboardCredit";
 import DashboardAssistant from "@/components/dashboard/DashboardAssistant";
+import DashboardTrading from "@/components/dashboard/DashboardTrading";
 
 const Dashboard = () => {
   return (
@@ -34,6 +35,7 @@ const Dashboard = () => {
               <Route path="/portfolio" element={<DashboardPortfolio />} />
               <Route path="/credit" element={<DashboardCredit />} />
               <Route path="/assistant" element={<DashboardAssistant />} />
+              <Route path="/trading" element={<DashboardTrading />} />
             </Routes>
           </main>
         </div>

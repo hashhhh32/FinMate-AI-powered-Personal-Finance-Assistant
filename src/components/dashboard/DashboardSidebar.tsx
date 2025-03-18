@@ -1,132 +1,140 @@
-
 import React from "react";
-import { NavLink, useLocation } from "react-router-dom";
-import { useAuth } from "@/context/AuthContext";
-import {
-  Sidebar,
-  SidebarContent,
-  SidebarFooter,
-  SidebarHeader,
-  SidebarTrigger,
-} from "@/components/ui/sidebar";
-import { Button } from "@/components/ui/button";
+import { Link, NavLink, useLocation } from "react-router-dom";
+import { cn } from "@/lib/utils";
+import { Separator } from "@/components/ui/separator";
+import { useSidebar } from "@/components/ui/sidebar";
 import {
   LayoutDashboard,
-  PieChart,
-  DollarSign,
-  TrendingUp,
-  Settings,
-  LogOut,
-  CreditCard,
+  Receipt,
+  PiggyBank,
   LineChart,
+  TrendingUp,
+  BarChart4,
   Briefcase,
-  MessageSquare,
+  CreditCard,
+  Settings,
+  Bot,
+  DollarSign,
+  ArrowRightLeft,
 } from "lucide-react";
 
+const navLinkClasses = ({ isActive }: { isActive: boolean }) =>
+  cn(
+    "flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-secondary hover:text-foreground",
+    isActive
+      ? "bg-secondary text-foreground"
+      : "text-muted-foreground hover:text-foreground"
+  );
+
 const DashboardSidebar = () => {
-  const { user, getUserName, signOut } = useAuth();
+  const { isSidebarOpen } = useSidebar();
   const location = useLocation();
 
-  const navItems = [
-    {
-      name: "Overview",
-      path: "/dashboard",
-      icon: <LayoutDashboard className="h-5 w-5" />,
-    },
-    {
-      name: "Expense Tracking",
-      path: "/dashboard/expenses",
-      icon: <DollarSign className="h-5 w-5" />,
-    },
-    {
-      name: "Stock Predictions",
-      path: "/dashboard/stocks",
-      icon: <LineChart className="h-5 w-5" />,
-    },
-    {
-      name: "Portfolio",
-      path: "/dashboard/portfolio",
-      icon: <Briefcase className="h-5 w-5" />,
-    },
-    {
-      name: "Budget",
-      path: "/dashboard/budget",
-      icon: <PieChart className="h-5 w-5" />,
-    },
-    {
-      name: "Credit Score",
-      path: "/dashboard/credit",
-      icon: <CreditCard className="h-5 w-5" />,
-    },
-    {
-      name: "Investments",
-      path: "/dashboard/investments",
-      icon: <TrendingUp className="h-5 w-5" />,
-    },
-    {
-      name: "AI Assistant",
-      path: "/dashboard/assistant",
-      icon: <MessageSquare className="h-5 w-5" />,
-    },
-    {
-      name: "Settings",
-      path: "/dashboard/settings",
-      icon: <Settings className="h-5 w-5" />,
-    },
-  ];
-
-  const activeClass = "bg-sidebar-accent text-sidebar-accent-foreground";
-  const inactiveClass = "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground";
-
   return (
-    <Sidebar className="border-r dark:border-r-gray-800">
-      <SidebarHeader className="flex justify-between items-center px-6 py-4">
-        <NavLink to="/" className="flex items-center gap-2">
-          <span className="text-xl font-bold gradient-text">FinMate</span>
-        </NavLink>
-        <SidebarTrigger />
-      </SidebarHeader>
-      <SidebarContent className="px-4 py-6">
-        <div className="space-y-1">
-          {navItems.map((item) => (
-            <NavLink
-              key={item.path}
-              to={item.path}
-              end={item.path === "/dashboard"}
-              className={({ isActive }) =>
-                `flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
-                  isActive ? activeClass : inactiveClass
-                }`
-              }
+    <aside
+      className={cn(
+        "fixed left-0 top-0 z-40 h-screen w-64 border-r bg-background transition-transform lg:translate-x-0 lg:w-60",
+        isSidebarOpen ? "translate-x-0" : "-translate-x-full"
+      )}
+    >
+      <div className="relative flex h-full flex-col overflow-y-auto px-3 py-4">
+        <Link to="/" className="flex items-center mb-5 px-2 py-1">
+          <DollarSign className="h-6 w-6 mr-2 text-primary" />
+          <h1 className="text-xl font-bold text-foreground">FinMate</h1>
+        </Link>
+
+        <nav className="flex-1 space-y-1">
+          <ul className="space-y-1">
+            <li>
+              <NavLink to="/dashboard" end className={navLinkClasses}>
+                <LayoutDashboard className="h-5 w-5 mr-3" />
+                Dashboard
+              </NavLink>
+            </li>
+            <li>
+              <NavLink to="/dashboard/transactions" className={navLinkClasses}>
+                <Receipt className="h-5 w-5 mr-3" />
+                Transactions
+              </NavLink>
+            </li>
+            <li>
+              <NavLink to="/dashboard/expenses" className={navLinkClasses}>
+                <PiggyBank className="h-5 w-5 mr-3" />
+                Expenses
+              </NavLink>
+            </li>
+            <li>
+              <NavLink to="/dashboard/budget" className={navLinkClasses}>
+                <LineChart className="h-5 w-5 mr-3" />
+                Budget
+              </NavLink>
+            </li>
+            <Separator className="my-2" />
+            <li>
+              <NavLink to="/dashboard/stocks" className={navLinkClasses}>
+                <TrendingUp className="h-5 w-5 mr-3" />
+                Stocks
+              </NavLink>
+            </li>
+            <li>
+              <NavLink to="/dashboard/portfolio" className={navLinkClasses}>
+                <BarChart4 className="h-5 w-5 mr-3" />
+                Portfolio
+              </NavLink>
+            </li>
+            <li>
+              <NavLink to="/dashboard/trading" className={navLinkClasses}>
+                <ArrowRightLeft className="h-5 w-5 mr-3" />
+                Trading
+              </NavLink>
+            </li>
+            <li>
+              <NavLink to="/dashboard/investments" className={navLinkClasses}>
+                <Briefcase className="h-5 w-5 mr-3" />
+                Investments
+              </NavLink>
+            </li>
+            <Separator className="my-2" />
+            <li>
+              <NavLink to="/dashboard/credit" className={navLinkClasses}>
+                <CreditCard className="h-5 w-5 mr-3" />
+                Credit
+              </NavLink>
+            </li>
+            <li>
+              <NavLink to="/dashboard/assistant" className={navLinkClasses}>
+                <Bot className="h-5 w-5 mr-3" />
+                AI Assistant
+              </NavLink>
+            </li>
+            <Separator className="my-2" />
+            <li>
+              <NavLink to="/dashboard/settings" className={navLinkClasses}>
+                <Settings className="h-5 w-5 mr-3" />
+                Settings
+              </NavLink>
+            </li>
+          </ul>
+        </nav>
+
+        <div className="mt-auto">
+          <Separator className="my-2" />
+          <div className="space-y-2">
+            <h4 className="text-sm font-medium">Your Profile</h4>
+            <p className="text-sm text-muted-foreground">
+              Manage your account and preferences
+            </p>
+            <Link
+              to="/profile"
+              className="flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-secondary hover:text-foreground text-muted-foreground"
             >
-              {item.icon}
-              <span>{item.name}</span>
-            </NavLink>
-          ))}
-        </div>
-      </SidebarContent>
-      <SidebarFooter className="p-4 border-t dark:border-t-gray-800">
-        <div className="flex flex-col space-y-4">
-          <div className="flex items-center gap-3 rounded-md px-3 py-2">
-            <div className="flex-shrink-0 h-8 w-8 rounded-full bg-finmate-200 dark:bg-finmate-800 flex items-center justify-center">
-              {getUserName()[0] || "U"}
-            </div>
-            <div className="truncate">
-              <div className="text-sm font-medium">{getUserName() || "User"}</div>
-              <div className="text-xs text-sidebar-foreground/70 truncate">{user?.email}</div>
-            </div>
+              <Settings className="h-4 w-4 mr-2" />
+              Edit Profile
+            </Link>
           </div>
-          <Button
-            variant="outline"
-            className="w-full text-sidebar-foreground border-sidebar-border flex items-center gap-2"
-            onClick={signOut}
-          >
-            <LogOut className="h-4 w-4" />
-            <span>Sign Out</span>
-          </Button>
         </div>
-      </SidebarFooter>
-    </Sidebar>
+      </div>
+    </aside>
   );
 };
 
