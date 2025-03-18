@@ -222,22 +222,19 @@ export function useTrading() {
       
       if (error) throw error;
       
-      const formattedConversations = [];
-      
       // Format data into user/assistant pairs
-      for (const item of data || []) {
-        formattedConversations.push({
+      const formattedConversations = data ? data.flatMap(item => [
+        {
           role: 'user' as const,
           content: item.user_message,
           timestamp: item.timestamp
-        });
-        
-        formattedConversations.push({
+        },
+        {
           role: 'assistant' as const,
           content: item.assistant_response,
           timestamp: item.timestamp
-        });
-      }
+        }
+      ]) : [];
       
       // Sort by timestamp
       formattedConversations.sort((a, b) => 

@@ -1,3 +1,4 @@
+
 import React from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
@@ -27,14 +28,14 @@ const navLinkClasses = ({ isActive }: { isActive: boolean }) =>
   );
 
 const DashboardSidebar = () => {
-  const { isSidebarOpen } = useSidebar();
+  const { sidebarOpen } = useSidebar();
   const location = useLocation();
 
   return (
     <aside
       className={cn(
         "fixed left-0 top-0 z-40 h-screen w-64 border-r bg-background transition-transform lg:translate-x-0 lg:w-60",
-        isSidebarOpen ? "translate-x-0" : "-translate-x-full"
+        sidebarOpen ? "translate-x-0" : "-translate-x-full"
       )}
     >
       <div className="relative flex h-full flex-col overflow-y-auto px-3 py-4">
