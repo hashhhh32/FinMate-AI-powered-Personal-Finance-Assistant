@@ -14,6 +14,7 @@ import DashboardStocks from "@/components/dashboard/DashboardStocks";
 import DashboardPortfolio from "@/components/dashboard/DashboardPortfolio";
 import DashboardCredit from "@/components/dashboard/DashboardCredit";
 import DashboardAssistant from "@/components/dashboard/DashboardAssistant";
+import DashboardProfile from "@/components/dashboard/DashboardProfile";
 import TradingAssistant from "@/components/trading/TradingAssistant";
 
 // Create a wrapper component for the Trading page
@@ -52,7 +53,7 @@ const Dashboard = () => {
     <SidebarProvider>
       <div className="min-h-screen flex w-full">
         <DashboardSidebar />
-        <div className="flex-1 flex flex-col">
+        <div className="flex-1 flex flex-col lg:ml-60">
           <DashboardHeader />
           <main className="flex-1 p-4 md:p-6 bg-gray-50 dark:bg-gray-900">
             <Routes>
@@ -67,6 +68,7 @@ const Dashboard = () => {
               <Route path="/credit" element={<DashboardCredit />} />
               <Route path="/assistant" element={<DashboardAssistant />} />
               <Route path="/trading" element={<DashboardTrading />} />
+              <Route path="/profile" element={<DashboardProfile />} />
             </Routes>
           </main>
         </div>

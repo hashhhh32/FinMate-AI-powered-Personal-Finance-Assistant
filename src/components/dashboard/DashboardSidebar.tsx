@@ -1,9 +1,11 @@
 
 import React from "react";
-import { Link, NavLink, useLocation } from "react-router-dom";
+import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Separator } from "@/components/ui/separator";
 import { useSidebar } from "@/components/ui/sidebar";
+import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/context/AuthContext";
 import {
   LayoutDashboard,
   Receipt,
@@ -17,6 +19,8 @@ import {
   Bot,
   DollarSign,
   ArrowRightLeft,
+  LogOut,
+  User,
 } from "lucide-react";
 
 const navLinkClasses = ({ isActive }: { isActive: boolean }) =>
@@ -28,8 +32,28 @@ const navLinkClasses = ({ isActive }: { isActive: boolean }) =>
   );
 
 const DashboardSidebar = () => {
-  const { open: sidebarOpen } = useSidebar(); // Changed from isOpen to open to match SidebarContext
+  const { open: sidebarOpen } = useSidebar();
   const location = useLocation();
+  const { toast } = useToast();
+  const { signOut } = useAuth();
+  const navigate = useNavigate();
+
+  const handleLogout = async () => {
+    try {
+      await signOut();
+      toast({
+        title: "Logged out successfully",
+        description: "You have been logged out of your account",
+      });
+      navigate("/signin");
+    } catch (error) {
+      toast({
+        title: "Error logging out",
+        description: "An error occurred while logging out",
+        variant: "destructive",
+      });
+    }
+  };
 
   return (
     <aside
@@ -115,24 +139,24 @@ const DashboardSidebar = () => {
                 Settings
               </NavLink>
             </li>
+            <li>
+              <NavLink to="/dashboard/profile" className={navLinkClasses}>
+                <User className="h-5 w-5 mr-3" />
+                Profile
+              </NavLink>
+            </li>
           </ul>
         </nav>
 
         <div className="mt-auto">
           <Separator className="my-2" />
-          <div className="space-y-2">
-            <h4 className="text-sm font-medium">Your Profile</h4>
-            <p className="text-sm text-muted-foreground">
-              Manage your account and preferences
-            </p>
-            <Link
-              to="/profile"
-              className="flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-secondary hover:text-foreground text-muted-foreground"
-            >
-              <Settings className="h-4 w-4 mr-2" />
-              Edit Profile
-            </Link>
-          </div>
+          <button
+            onClick={handleLogout}
+            className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-destructive/10 hover:text-destructive text-muted-foreground"
+          >
+            <LogOut className="h-5 w-5 mr-3" />
+            Logout
+          </button>
         </div>
       </div>
     </aside>

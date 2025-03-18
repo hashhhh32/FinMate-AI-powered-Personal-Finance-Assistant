@@ -224,6 +224,162 @@ export type Database = {
         }
         Relationships: []
       }
+      trading_conversations: {
+        Row: {
+          assistant_response: string
+          id: string
+          timestamp: string
+          user_id: string
+          user_message: string
+        }
+        Insert: {
+          assistant_response: string
+          id?: string
+          timestamp?: string
+          user_id: string
+          user_message: string
+        }
+        Update: {
+          assistant_response?: string
+          id?: string
+          timestamp?: string
+          user_id?: string
+          user_message?: string
+        }
+        Relationships: []
+      }
+      trading_orders: {
+        Row: {
+          created_at: string
+          id: string
+          order_id: string
+          order_type: string
+          price: number | null
+          quantity: number
+          status: string
+          symbol: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          order_id: string
+          order_type: string
+          price?: number | null
+          quantity: number
+          status: string
+          symbol: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          order_id?: string
+          order_type?: string
+          price?: number | null
+          quantity?: number
+          status?: string
+          symbol?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      trading_portfolios: {
+        Row: {
+          cash: number
+          equity: number
+          id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          cash: number
+          equity: number
+          id?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          cash?: number
+          equity?: number
+          id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      trading_positions: {
+        Row: {
+          cost_basis: number
+          id: string
+          market_value: number
+          quantity: number
+          symbol: string
+          unrealized_pl: number
+          unrealized_plpc: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          cost_basis: number
+          id?: string
+          market_value: number
+          quantity: number
+          symbol: string
+          unrealized_pl: number
+          unrealized_plpc: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          cost_basis?: number
+          id?: string
+          market_value?: number
+          quantity?: number
+          symbol?: string
+          unrealized_pl?: number
+          unrealized_plpc?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_profiles: {
+        Row: {
+          avatar_url: string | null
+          bio: string | null
+          created_at: string | null
+          full_name: string | null
+          id: string
+          location: string | null
+          phone: string | null
+          profession: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          avatar_url?: string | null
+          bio?: string | null
+          created_at?: string | null
+          full_name?: string | null
+          id: string
+          location?: string | null
+          phone?: string | null
+          profession?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          avatar_url?: string | null
+          bio?: string | null
+          created_at?: string | null
+          full_name?: string | null
+          id?: string
+          location?: string | null
+          phone?: string | null
+          profession?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       user_watchlists: {
         Row: {
           added_date: string
