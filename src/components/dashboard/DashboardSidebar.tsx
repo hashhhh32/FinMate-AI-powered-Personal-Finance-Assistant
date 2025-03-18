@@ -28,7 +28,7 @@ const navLinkClasses = ({ isActive }: { isActive: boolean }) =>
   );
 
 const DashboardSidebar = () => {
-  const { sidebarOpen } = useSidebar();
+  const { isOpen: sidebarOpen } = useSidebar();
   const location = useLocation();
 
   return (

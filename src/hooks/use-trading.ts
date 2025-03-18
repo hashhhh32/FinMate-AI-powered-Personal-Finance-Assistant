@@ -37,6 +37,46 @@ export type TradingAssistantResponse = {
   data?: any;
 };
 
+export type TradingPortfolio = {
+  id: string;
+  user_id: string;
+  equity: number;
+  cash: number;
+  updated_at: string;
+};
+
+export type TradingPosition = {
+  id: string;
+  user_id: string;
+  symbol: string;
+  quantity: number;
+  market_value: number;
+  cost_basis: number;
+  unrealized_pl: number;
+  unrealized_plpc: number;
+  updated_at: string;
+};
+
+export type TradingOrder = {
+  id: string;
+  user_id: string;
+  order_id: string;
+  symbol: string;
+  quantity: number;
+  price: number | null;
+  order_type: string;
+  status: string;
+  created_at: string;
+};
+
+export type TradingConversation = {
+  id: string;
+  user_id: string;
+  user_message: string;
+  assistant_response: string;
+  timestamp: string;
+};
+
 export function useTrading() {
   const [isLoadingPortfolio, setIsLoadingPortfolio] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -130,9 +170,7 @@ export function useTrading() {
       
       // Fetch portfolio summary
       const { data: portfolioData, error: portfolioError } = await supabase
-        .from('trading_portfolios')
-        .select('*')
-        .eq('user_id', user.id)
+        .rpc('get_trading_portfolio', { user_id_param: user.id })
         .single();
       
       if (portfolioError) {
@@ -144,9 +182,7 @@ export function useTrading() {
       
       // Fetch positions
       const { data: positionsData, error: positionsError } = await supabase
-        .from('trading_positions')
-        .select('*')
-        .eq('user_id', user.id);
+        .rpc('get_trading_positions', { user_id_param: user.id });
       
       if (positionsError) throw positionsError;
       
@@ -189,9 +225,7 @@ export function useTrading() {
 
     try {
       const { data, error } = await supabase
-        .from('trading_orders')
-        .select('*')
-        .eq('user_id', user.id)
+        .rpc('get_trading_orders', { user_id_param: user.id })
         .order('created_at', { ascending: false })
         .limit(10);
       
@@ -214,9 +248,7 @@ export function useTrading() {
 
     try {
       const { data, error } = await supabase
-        .from('trading_conversations')
-        .select('*')
-        .eq('user_id', user.id)
+        .rpc('get_trading_conversations', { user_id_param: user.id })
         .order('timestamp', { ascending: false })
         .limit(20);
       
