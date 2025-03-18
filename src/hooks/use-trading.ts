@@ -231,7 +231,13 @@ export function useTrading() {
       
       if (error) throw error;
       
-      setRecentOrders(data || []);
+      // Type casting to ensure order_type is properly typed
+      const typedOrders = data ? data.map(order => ({
+        ...order,
+        order_type: order.order_type.toLowerCase() === 'buy' ? 'buy' : 'sell'
+      } as TradeOrder)) : [];
+      
+      setRecentOrders(typedOrders);
     } catch (error: any) {
       console.error('Error fetching recent orders:', error);
       toast({
