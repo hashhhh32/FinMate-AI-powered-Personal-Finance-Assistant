@@ -1,50 +1,25 @@
 /// <reference lib="deno.ns" />
-/// <reference lib="dom" />
-
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.7';
-import Alpaca from 'npm:@alpacahq/alpaca-trade-api';
-import AlpacaClient from 'npm:@alpacahq/alpaca-trade-api/alpaca-client';
-
-// Type declarations for Deno environment
-declare const Deno: {
-  env: {
-    get(key: string): string | undefined;
-  };
-};
-
-// Define environment variables with proper type checking
-const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
-const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
-const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
-const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY') ?? '';
-const ALPACA_API_KEY = Deno.env.get('ALPACA_API_KEY') ?? '';
-const ALPACA_API_SECRET = Deno.env.get('ALPACA_API_SECRET') ?? '';
-
-// Validate required environment variables
-if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !GEMINI_API_KEY || !ALPACA_API_KEY || !ALPACA_API_SECRET) {
-  throw new Error('Missing required environment variables');
-}
 
 // Define CORS headers
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Max-Age': '86400',
-};
+}
 
-// Define response headers that include CORS
-const responseHeaders = {
-  'Content-Type': 'application/json',
-  ...corsHeaders,
-};
-
-// Initialize Supabase client
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+// Create a Supabase client
+const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
+const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 // Alpaca API credentials
+const ALPACA_API_KEY = Deno.env.get('ALPACA_API_KEY') || '';
+const ALPACA_API_SECRET = Deno.env.get('ALPACA_API_SECRET') || '';
 const ALPACA_BASE_URL = 'https://paper-api.alpaca.markets'; // Paper trading URL
+
+// Gemini API key
+const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY') || '';
 
 // Alpha Vantage API key (reusing existing key)
 const ALPHA_VANTAGE_API_KEY = 'ERZP1A2SEHQWGFE1';
@@ -58,31 +33,6 @@ interface ChatMessage {
 interface ConversationHistory {
   messages: ChatMessage[];
   lastUpdated: string;
-}
-
-// Initialize Alpaca client outside request handler for reuse
-const alpaca = new Alpaca({
-  keyId: ALPACA_API_KEY,
-  secretKey: ALPACA_API_SECRET,
-  paper: true,
-  baseUrl: 'https://paper-api.alpaca.markets'
-});
-
-// Add this function to validate Alpaca API connectivity
-async function validateAlpacaConnection() {
-  try {
-    const account = await alpaca.getAccount();
-    console.log('Alpaca API connection validated:', {
-      id: account.id,
-      status: account.status,
-      trading_enabled: !account.trading_blocked,
-      buying_power: account.buying_power
-    });
-    return true;
-  } catch (error) {
-    console.error('Alpaca API validation error:', error);
-    return false;
-  }
 }
 
 // Add this function to store conversation history
@@ -109,7 +59,7 @@ async function storeConversationHistory(userId: string, message: ChatMessage) {
       .upsert({
         user_id: userId,
         messages,
-        last_updated: new Date().toISOString()
+        lastUpdated: new Date().toISOString()
       }, { onConflict: 'user_id' });
     
     if (upsertError) {
@@ -120,73 +70,27 @@ async function storeConversationHistory(userId: string, message: ChatMessage) {
   }
 }
 
-// Add new type for price update request
-interface PriceUpdateRequest {
-  userId: string;
-  symbols: string[];
-}
-
-// Add new function to fetch stock prices
-async function fetchStockPrices(symbols: string[]): Promise<{ [key: string]: number }> {
-  try {
-    const prices: { [key: string]: number } = {};
-    
-    await Promise.all(
-      symbols.map(async (symbol) => {
-        try {
-          const response = await fetch(`https://data.alpaca.markets/v2/stocks/${symbol}/quotes/latest`, {
-            headers: {
-              'APCA-API-KEY-ID': Deno.env.get('ALPACA_API_KEY') || '',
-              'APCA-API-SECRET-KEY': Deno.env.get('ALPACA_API_SECRET') || ''
-            }
-          });
-
-          if (!response.ok) {
-            throw new Error(`Failed to fetch quote for ${symbol}: ${response.statusText}`);
-          }
-
-          const data = await response.json();
-          const price = data?.quote?.ap || data?.quote?.bp;
-
-          if (price) {
-            prices[symbol] = price;
-          } else {
-            // Fallback to latest trade
-            const tradeResponse = await fetch(`https://data.alpaca.markets/v2/stocks/${symbol}/trades/latest`, {
-              headers: {
-                'APCA-API-KEY-ID': Deno.env.get('ALPACA_API_KEY') || '',
-                'APCA-API-SECRET-KEY': Deno.env.get('ALPACA_API_SECRET') || ''
-              }
-            });
-
-            if (tradeResponse.ok) {
-              const tradeData = await tradeResponse.json();
-              if (tradeData?.trade?.p) {
-                prices[symbol] = tradeData.trade.p;
-              }
-            }
-          }
-        } catch (error) {
-          console.error(`Error fetching price for ${symbol}:`, error);
-        }
-      })
-    );
-
-    return prices;
-  } catch (error) {
-    console.error('Error fetching stock prices:', error);
-    throw error;
-  }
-}
-
 // Define the main handler for the Edge Function
 serve(async (req) => {
-  // Handle CORS preflight requests
+  // Add CORS headers
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
+    return new Response('ok', {
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'POST',
+        'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+      }
+    });
   }
 
   try {
+    // Add CORS headers to all responses
+    const corsHeaders = {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'POST',
+      'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    };
+
     // Extract the JWT token from the request
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
@@ -194,7 +98,10 @@ serve(async (req) => {
         JSON.stringify({ error: 'No authorization header' }),
         { 
           status: 401,
-          headers: responseHeaders
+          headers: {
+            'Content-Type': 'application/json',
+            ...corsHeaders
+          }
         }
       );
     }
@@ -204,19 +111,8 @@ serve(async (req) => {
     console.log('Request headers:', Object.fromEntries(req.headers.entries()));
     
     // Get request body
-    let requestBody;
-    try {
-      requestBody = await req.json();
-    } catch (error) {
-      return new Response(
-        JSON.stringify({ error: 'Invalid JSON body' }),
-        { 
-          status: 400,
-          headers: responseHeaders
-        }
-      );
-    }
-
+    const requestBody = await req.json();
+    console.log('Request body:', JSON.stringify(requestBody));
     const { message, userId, messageType } = requestBody;
     
     // Validate environment variables with detailed logging
@@ -225,8 +121,8 @@ serve(async (req) => {
       GEMINI_API_KEY: !!GEMINI_API_KEY,
       ALPACA_API_KEY: !!ALPACA_API_KEY,
       ALPACA_API_SECRET: !!ALPACA_API_SECRET,
-      SUPABASE_URL: !!SUPABASE_URL,
-      SUPABASE_KEY: !!SUPABASE_SERVICE_ROLE_KEY
+      SUPABASE_URL: !!supabaseUrl,
+      SUPABASE_KEY: !!supabaseKey
     };
     console.log('Environment check:', envCheck);
     
@@ -273,7 +169,7 @@ serve(async (req) => {
             has_credentials: !!ALPACA_API_KEY && !!ALPACA_API_SECRET
           }
         }),
-        { headers: { ...responseHeaders, 'Content-Type': 'application/json' }, status: 500 }
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
       );
     }
     
@@ -296,7 +192,7 @@ serve(async (req) => {
         throw new Error('Invalid intent structure returned from Gemini');
       }
       
-      if (!['GET_STOCK_PRICE', 'BUY_STOCK', 'SELL_STOCK', 'GET_PORTFOLIO', 'GENERAL', 'GET_MARKET_STATUS'].includes(intent.action)) {
+      if (!['GET_STOCK_PRICE', 'BUY_STOCK', 'SELL_STOCK', 'GET_PORTFOLIO', 'GENERAL'].includes(intent.action)) {
         throw new Error(`Invalid action in intent: ${intent.action}`);
       }
     } catch (error) {
@@ -310,7 +206,7 @@ serve(async (req) => {
             intent: intent || null
           }
         }),
-        { headers: { ...responseHeaders, 'Content-Type': 'application/json' }, status: 500 }
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
       );
     }
     
@@ -325,23 +221,15 @@ serve(async (req) => {
         break;
       case 'BUY_STOCK':
           console.log('Executing buy order for:', intent.symbol, intent.quantity);
-        response = await executeTrade(userId, intent.symbol, intent.quantity, 'BUY_STOCK');
+        response = await executeTrade(userId, 'buy', intent.symbol, intent.quantity);
         break;
       case 'SELL_STOCK':
           console.log('Executing sell order for:', intent.symbol, intent.quantity);
-        response = await executeTrade(userId, intent.symbol, intent.quantity, 'SELL_STOCK');
+        response = await executeTrade(userId, 'sell', intent.symbol, intent.quantity);
         break;
       case 'GET_PORTFOLIO':
           console.log('Getting portfolio for user:', userId);
         response = await getPortfolio(userId);
-        break;
-      case 'GET_MARKET_STATUS':
-        const status = await getMarketStatus();
-        response = {
-          success: true,
-          message: formatMarketStatusMessage(status),
-          data: status
-        };
         break;
       default:
           console.log('Getting general response');
@@ -366,7 +254,7 @@ serve(async (req) => {
             response: response || null
           }
         }),
-        { headers: { ...responseHeaders, 'Content-Type': 'application/json' }, status: 500 }
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
       );
     }
     
@@ -389,7 +277,7 @@ serve(async (req) => {
     console.log('=== Request processing complete ===');
     return new Response(
       JSON.stringify(response),
-      { headers: responseHeaders }
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
     
   } catch (error) {
@@ -404,63 +292,43 @@ serve(async (req) => {
           stack: error.stack
         }
       }),
-      { headers: responseHeaders, status: 500 }
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
     );
   }
 });
 
 // Modify processMessageWithGemini for better error handling
-async function processMessageWithGemini(message: string) {
-  console.log('=== Processing message ===');
+async function processMessageWithGemini(message) {
+  console.log('=== Starting Gemini processing ===');
   try {
-    // First, try to match trade commands directly
-    const buyMatch = message.match(/buy\s+(\d+)\s+shares?\s+of\s+([A-Z]{1,5})/i);
-    const sellMatch = message.match(/sell\s+(\d+)\s+shares?\s+of\s+([A-Z]{1,5})/i);
-    const portfolioMatch = message.toLowerCase().includes('portfolio') || 
-                         message.toLowerCase().includes('positions') ||
-                         message.toLowerCase().includes('balance');
-    const priceMatch = message.match(/(?:price|quote|value)\s+(?:of|for)?\s+([A-Z]{1,5})/i);
-
-    // Handle trade commands directly without Gemini
-    if (buyMatch || sellMatch) {
-      const match = buyMatch || sellMatch;
-      const quantity = parseInt(match![1]);
-      const symbol = match![2].toUpperCase();
-      
-      return {
-        action: buyMatch ? 'BUY_STOCK' : 'SELL_STOCK',
-        symbol,
-        quantity,
-        confidence: 1.0
-      };
-    }
-
-    // Handle portfolio queries directly
-    if (portfolioMatch) {
-      return {
-        action: 'GET_PORTFOLIO',
-        symbol: null,
-        quantity: null,
-        confidence: 1.0
-      };
-    }
-
-    // Handle price queries directly
-    if (priceMatch) {
-      return {
-        action: 'GET_STOCK_PRICE',
-        symbol: priceMatch[1].toUpperCase(),
-        quantity: null,
-        confidence: 1.0
-      };
-    }
-
-    // Only use Gemini for general questions
     if (!GEMINI_API_KEY) {
       throw new Error('GEMINI_API_KEY_MISSING');
     }
-
-    const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+    
+    // Extract stock symbol and quantity before Gemini processing
+    const buyMatch = message.match(/buy\s+(\d+)\s+shares?\s+of\s+([A-Z]{1,5})/i);
+    const sellMatch = message.match(/sell\s+(\d+)\s+shares?\s+of\s+([A-Z]{1,5})/i);
+    const match = buyMatch || sellMatch;
+    
+    if (match) {
+      const quantity = parseInt(match[1]);
+      const symbol = match[2];
+      const action = buyMatch ? 'BUY_STOCK' : 'SELL_STOCK';
+      
+      console.log('Extracted trade details:', { action, symbol, quantity });
+      
+      return {
+        action,
+        symbol,
+        quantity,
+        confidence: 0.95
+      };
+    }
+    
+    // Fallback to Gemini processing for other queries
+    const url = `https://generativelanguage.googleapis.com/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+    console.log('Sending request to Gemini API...');
+    
     const response = await fetch(url, {
       method: 'POST',
       headers: {
@@ -470,41 +338,71 @@ async function processMessageWithGemini(message: string) {
         contents: [{
           parts: [{
             text: `You are a financial assistant that helps users trade stocks and analyze their portfolio.
-                   Based on the following user message, provide guidance on using the trading platform.
+                   Based on the following user message, determine the user's intent and extract relevant information.
                    Message: "${message}"
+                   Respond with a JSON object in this exact format:
+                   {
+                     "action": "GET_STOCK_PRICE" | "BUY_STOCK" | "SELL_STOCK" | "GET_PORTFOLIO" | "GENERAL",
+                     "symbol": "Stock symbol if applicable",
+                     "quantity": "Number of shares if applicable",
+                     "confidence": "Confidence score between 0 and 1"
+                   }
                    
-                   Important instructions:
-                   1. For trading, tell users to use exact format: "Buy X shares of SYMBOL" or "Sell X shares of SYMBOL"
-                   2. For portfolio, tell users to say "Show my portfolio" or "Check my positions"
-                   3. For prices, tell users to say "What's the price of SYMBOL"
-                   4. Keep responses under 150 words and focus on platform usage
+                   Examples:
+                   - "What's the price of AAPL?" → {"action": "GET_STOCK_PRICE", "symbol": "AAPL", "quantity": null, "confidence": 0.95}
+                   - "Buy 5 shares of TSLA" → {"action": "BUY_STOCK", "symbol": "TSLA", "quantity": 5, "confidence": 0.98}
                    
-                   Remember to always guide users to use the exact command formats mentioned above.`
+                   Only respond with the JSON object, no other text.`
           }]
-        }],
-        generationConfig: {
-          temperature: 0.2,
-          topK: 32,
-          topP: 0.8,
-          maxOutputTokens: 256
-        }
+        }]
       })
     });
-
+    
     if (!response.ok) {
-      throw new Error(`Gemini API error: ${response.status}`);
+      const errorText = await response.text();
+      console.error('Gemini API error response:', {
+        status: response.status,
+        statusText: response.statusText,
+        error: errorText
+      });
+      throw new Error(`Gemini API error: ${response.status} - ${errorText}`);
     }
-
+    
     const data = await response.json();
-    return {
-      action: 'GENERAL',
-      symbol: null,
-      quantity: null,
-      confidence: 1.0,
-      message: data.candidates[0].content.parts[0].text.trim()
-    };
+    console.log('Gemini API raw response:', JSON.stringify(data));
+    
+    if (!data.candidates?.[0]?.content?.parts?.[0]?.text) {
+      throw new Error('GEMINI_INVALID_RESPONSE_FORMAT');
+    }
+    
+    const textResponse = data.candidates[0].content.parts[0].text;
+    console.log('Gemini text response:', textResponse);
+    
+    const jsonMatch = textResponse.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error('GEMINI_NO_JSON_FOUND');
+    }
+    
+      try {
+        const intentJson = JSON.parse(jsonMatch[0]);
+      console.log('Parsed intent:', intentJson);
+      
+      // Validate intent structure
+      if (!intentJson.action || !['GET_STOCK_PRICE', 'BUY_STOCK', 'SELL_STOCK', 'GET_PORTFOLIO', 'GENERAL'].includes(intentJson.action)) {
+        throw new Error(`Invalid action in intent: ${intentJson.action}`);
+      }
+      
+      // Use extracted symbol and quantity if available
+      if (symbol) intentJson.symbol = symbol;
+      if (quantity) intentJson.quantity = quantity;
+      
+        return intentJson;
+      } catch (e) {
+        console.error('Error parsing JSON from Gemini response:', e);
+      throw new Error('GEMINI_INVALID_JSON');
+    }
   } catch (error) {
-    console.error('Error in message processing:', error);
+    console.error('Error in Gemini processing:', error);
     throw error;
   }
 }
@@ -638,198 +536,351 @@ async function getStockPrice(symbol: string) {
   }
 }
 
-// Helper function to update position prices
-async function updatePositionPrices(userId: string, symbol: string, currentPrice: number) {
-  try {
-    console.log(`Updating position prices for ${symbol} to ${currentPrice}`);
-    
-    // Call the database function to update prices
-    const { error } = await supabase.rpc('update_position_price', {
-      p_user_id: userId,
-      p_symbol: symbol,
-      p_current_price: currentPrice
-    });
-
-    if (error) {
-      console.error('Error in updatePositionPrices:', error);
-      throw error;
-    }
-
-    console.log(`Successfully updated position prices for ${symbol}`);
-  } catch (error) {
-    console.error('Error updating position prices:', error);
-    throw error;
-  }
-}
-
-// Helper function to update trading position
-async function updateTradingPosition(
-  userId: string,
-  symbol: string,
-  quantity: number,
-  price: number,
-  isBuy: boolean
-) {
-  try {
-    await supabase.rpc('update_trading_position', {
-      p_user_id: userId,
-      p_symbol: symbol,
-      p_quantity: quantity,
-      p_price: price,
-      p_is_buy: isBuy
-    });
-    console.log(`Updated trading position for ${symbol}`);
-  } catch (error) {
-    console.error('Error updating trading position:', error);
-    throw error;
-  }
-}
-
-// Helper function to setup real-time price updates
-async function setupRealtimePriceUpdates(userId: string, symbol: string) {
-  try {
-    console.log(`Setting up real-time price updates for ${symbol}`);
-    
-    // Initialize Alpaca WebSocket connection
-    const alpaca = new AlpacaClient({
-      credentials: {
-        key: ALPACA_API_KEY,
-        secret: ALPACA_API_SECRET,
-      },
-      paper: true,
-    });
-
-    // Subscribe to quote updates
-    alpaca.subscribe.quotes([symbol], async (quote) => {
-      if (quote.ap > 0) { // Use ask price if available
-        await updatePositionPrices(userId, symbol, quote.ap);
-      } else if (quote.bp > 0) { // Fallback to bid price
-        await updatePositionPrices(userId, symbol, quote.bp);
-      }
-    });
-
-    // Handle connection events
-    alpaca.subscribe.onConnect(() => {
-      console.log('Connected to Alpaca WebSocket');
-    });
-
-    alpaca.subscribe.onDisconnect(() => {
-      console.log('Disconnected from Alpaca WebSocket, attempting to reconnect...');
-      setupRealtimePriceUpdates(userId, symbol);
-    });
-
-    console.log(`Successfully set up real-time price updates for ${symbol}`);
-  } catch (error) {
-    console.error('Error setting up real-time price updates:', error);
-    throw error;
-  }
-}
-
-// Update the executeTrade function
-async function executeTrade(userId: string, symbol: string, quantity: number, action: 'BUY_STOCK' | 'SELL_STOCK') {
-  console.log('=== Executing trade ===', { userId, symbol, quantity, action });
+// Execute a stock trade via Alpaca API
+async function executeTrade(userId: string, orderType: 'buy' | 'sell', symbol: string, quantity: number) {
+  console.log('=== Starting trade execution ===');
+  console.log('Trade parameters:', { userId, orderType, symbol, quantity });
   
   try {
-    // Validate Alpaca connection
-    const isValid = await validateAlpacaConnection();
-    if (!isValid) {
-      throw new Error('Failed to validate Alpaca connection');
+    // Validate API credentials
+    if (!ALPACA_API_KEY || !ALPACA_API_SECRET) {
+      console.error('Missing Alpaca API credentials');
+      return {
+        success: false,
+        message: "Sorry, I can't execute trades right now because the trading service is not configured properly.",
+        debug: { error: 'ALPACA_CREDENTIALS_MISSING' }
+      };
     }
-
-    // Check if market is open
-    const clock = await alpaca.getClock();
-    if (!clock.is_open) {
-      throw new Error('Market is currently closed');
+    
+    // Validate trade parameters
+    if (!symbol) {
+      console.error('Missing symbol');
+      return {
+        success: false,
+        message: "I couldn't determine which stock you want to trade. Please specify a stock symbol.",
+        debug: { error: 'MISSING_SYMBOL' }
+      };
     }
-
-    // Get latest price
-    const quote = await alpaca.getLatestQuote(symbol);
-    if (!quote) {
-      throw new Error(`Could not get current price for ${symbol}`);
+    
+    if (!quantity || quantity <= 0) {
+      console.error('Invalid quantity:', quantity);
+      return {
+        success: false,
+        message: `Please specify how many shares of ${symbol} you want to ${orderType}.`,
+        debug: { error: 'INVALID_QUANTITY', quantity }
+      };
     }
-    const currentPrice = quote.AskPrice || quote.BidPrice;
-
-    // Check buying power for buys
-    if (action === 'BUY_STOCK') {
-      const account = await alpaca.getAccount();
-      const requiredFunds = quantity * currentPrice;
-      if (parseFloat(account.buying_power) < requiredFunds) {
-        throw new Error(`Insufficient buying power. Required: $${requiredFunds}, Available: $${account.buying_power}`);
+    
+    // Get current price
+    console.log('Fetching current price for:', symbol);
+    const priceInfo = await getStockPrice(symbol);
+    if (!priceInfo?.success || !priceInfo?.data?.price) {
+      console.error('Failed to get price info:', priceInfo);
+      return {
+        success: false,
+        message: `I couldn't get the current price for ${symbol}. Please try again later.`,
+        debug: { error: 'PRICE_FETCH_FAILED', priceInfo }
+      };
+    }
+    
+    const currentPrice = priceInfo.data.price;
+    console.log('Current price:', currentPrice);
+    
+    // Check account status and buying power (for buy orders)
+    if (orderType === 'buy') {
+      console.log('Checking account status...');
+      try {
+        const accountResponse = await fetch(`${ALPACA_BASE_URL}/v2/account`, {
+          headers: {
+            'APCA-API-KEY-ID': ALPACA_API_KEY,
+            'APCA-API-SECRET-KEY': ALPACA_API_SECRET
+          }
+        });
+        
+        if (!accountResponse.ok) {
+          const accountError = await accountResponse.text();
+          console.error('Failed to fetch account info:', accountError);
+          return {
+            success: false,
+            message: "I couldn't verify your account status. Please try again later.",
+            debug: { error: 'ACCOUNT_FETCH_FAILED', details: accountError }
+          };
+        }
+        
+        const accountData = await accountResponse.json();
+        const buyingPower = parseFloat(accountData.buying_power);
+        const orderCost = currentPrice * quantity;
+        
+        if (orderCost > buyingPower) {
+          console.error('Insufficient buying power:', { buyingPower, orderCost });
+          return {
+            success: false,
+            message: `You don't have enough buying power to purchase ${quantity} shares of ${symbol} at $${currentPrice.toFixed(2)} (Total cost: $${orderCost.toFixed(2)}, Available: $${buyingPower.toFixed(2)})`,
+            debug: { error: 'INSUFFICIENT_BUYING_POWER', buyingPower, orderCost }
+          };
+        }
+      } catch (error) {
+        console.error('Error checking account status:', error);
+        return {
+          success: false,
+          message: "I couldn't verify your account status. Please try again later.",
+          debug: { error: 'ACCOUNT_CHECK_FAILED', details: error.message }
+        };
       }
     }
-
-    // Check existing position for sells
-    if (action === 'SELL_STOCK') {
-      const position = await alpaca.getPosition(symbol).catch(() => null);
-      if (!position || parseInt(position.qty) < quantity) {
-        throw new Error(`Insufficient shares to sell. Requested: ${quantity}, Available: ${position ? position.qty : 0}`);
-      }
-    }
-
-    // Execute trade
-    const order = await alpaca.createOrder({
-      symbol: symbol,
+    
+    // Create order
+    console.log('Creating Alpaca order:', {
+      symbol,
       qty: quantity,
-      side: action === 'BUY_STOCK' ? 'buy' : 'sell',
+      side: orderType,
       type: 'market',
       time_in_force: 'day'
     });
-
-    // Update trading position
-    await updateTradingPosition(
-      userId,
-      symbol,
-      quantity,
-      currentPrice,
-      action === 'BUY_STOCK'
-    );
-
-    // Set up real-time price updates for the position
-    await setupRealtimePriceUpdates(userId, symbol);
-
-    // Store the trade in the database
-    await storeTradeInDatabase(userId, {
-      orderId: order.id,
-      symbol,
-      quantity,
-      price: currentPrice,
-      type: action === 'BUY_STOCK' ? 'buy' : 'sell',
-      status: order.status
+    
+    const orderResponse = await fetch(`${ALPACA_BASE_URL}/v2/orders`, {
+      method: 'POST',
+      headers: {
+        'APCA-API-KEY-ID': ALPACA_API_KEY,
+        'APCA-API-SECRET-KEY': ALPACA_API_SECRET,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        symbol: symbol,
+        qty: quantity,
+        side: orderType,
+        type: 'market',
+        time_in_force: 'day'
+      })
     });
-
-    const response = {
-      success: true,
-      message: `Successfully ${action === 'BUY_STOCK' ? 'bought' : 'sold'} ${quantity} shares of ${symbol} at $${currentPrice}`,
+    
+    const orderData = await orderResponse.json();
+    console.log('Alpaca order response:', orderData);
+    
+    if (!orderResponse.ok) {
+      console.error('Order creation failed:', orderData);
+      return {
+        success: false,
+        message: `Failed to ${orderType} ${symbol}: ${orderData.message || 'Unknown error'}`,
+        debug: { error: 'ORDER_CREATION_FAILED', response: orderData }
+      };
+    }
+    
+    // Store order in database
+    console.log('Storing order in database...');
+    try {
+      await storeTradeInDatabase(userId, {
+        order_id: orderData.id,
+        symbol,
+        quantity,
+        price: currentPrice,
+        order_type: orderType,
+        status: orderData.status,
+        created_at: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error('Failed to store order in database:', error);
+      // Don't fail the request if database storage fails
+    }
+    
+    // Update portfolio
+    console.log('Updating portfolio...');
+    try {
+      await updatePortfolioAfterTrade(userId, symbol, quantity, currentPrice, orderType);
+    } catch (error) {
+      console.error('Failed to update portfolio:', error);
+      // Don't fail the request if portfolio update fails
+    }
+    
+    console.log('=== Trade execution complete ===');
+      return {
+        success: true,
+      message: `Successfully placed order to ${orderType} ${quantity} shares of ${symbol} at $${currentPrice.toFixed(2)}. Order ID: ${orderData.id}, Status: ${orderData.status}`,
       data: {
-        order,
-        currentPrice,
-        total: quantity * currentPrice
+        order: orderData,
+        price: currentPrice
       }
     };
-
-    // Store assistant response in conversation history
-    await storeConversationHistory(userId, {
-      role: 'assistant',
-      content: response.message,
-      timestamp: new Date().toISOString()
-    });
-
-    return response;
-  } catch (error) {
-    console.error('Trade execution error:', error);
-    const errorMessage = `Failed to ${action === 'BUY_STOCK' ? 'buy' : 'sell'} ${symbol}: ${error.message}`;
     
-    // Store error response in conversation history
-    await storeConversationHistory(userId, {
-      role: 'assistant',
-      content: errorMessage,
-      timestamp: new Date().toISOString()
-    });
-
+  } catch (error) {
+    console.error('Error executing trade:', error);
     return {
       success: false,
-      message: errorMessage
+      message: `I encountered an error while trying to ${orderType} ${symbol}. Please try again later.`,
+      debug: { error: error.message }
     };
+  }
+}
+
+// New function to update portfolio after trade
+async function updatePortfolioAfterTrade(userId: string, symbol: string, quantity: number, price: number, orderType: 'buy' | 'sell') {
+  console.log('=== Starting portfolio update after trade ===');
+  console.log('Trade details:', { userId, symbol, quantity, price, orderType });
+
+  try {
+    // Get current portfolio data
+    let portfolioData;
+    const { data: portfolioResult, error: portfolioError } = await supabase
+      .from('trading_portfolios')
+      .select('*')
+      .eq('user_id', userId)
+      .single();
+    
+    if (portfolioError) {
+      console.error('Error fetching portfolio:', portfolioError);
+      if (portfolioError.code === 'PGRST116') { // No portfolio found
+        // Create initial portfolio if it doesn't exist
+        const { data: newPortfolio, error: createError } = await supabase
+          .from('trading_portfolios')
+          .insert({
+            user_id: userId,
+            equity: 0,
+            cash: 100000, // Default starting cash
+            updated_at: new Date().toISOString()
+          })
+          .select()
+          .single();
+        
+        if (createError) {
+          console.error('Error creating initial portfolio:', createError);
+          return;
+        }
+        
+        portfolioData = newPortfolio;
+      } else {
+        return;
+      }
+    } else {
+      portfolioData = portfolioResult;
+    }
+    
+    console.log('Current portfolio data:', portfolioData);
+    
+    // Get current positions
+    const { data: positionsData, error: positionsError } = await supabase
+      .from('trading_positions')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('symbol', symbol)
+      .single();
+    
+    if (positionsError && positionsError.code !== 'PGRST116') {
+      console.error('Error fetching positions:', positionsError);
+      return;
+    }
+    
+    const currentPosition = positionsData || {
+      symbol,
+      quantity: 0,
+      cost_basis: 0,
+      market_value: 0,
+      unrealized_pl: 0,
+      unrealized_plpc: 0
+    };
+    
+    console.log('Current position data:', currentPosition);
+    
+    // Calculate new position values
+    const newQuantity = orderType === 'buy' 
+      ? currentPosition.quantity + quantity 
+      : currentPosition.quantity - quantity;
+    
+    if (newQuantity < 0) {
+      console.error('Invalid trade: Would result in negative shares');
+      return;
+    }
+    
+    const newMarketValue = newQuantity * price;
+    const newCostBasis = orderType === 'buy'
+      ? (currentPosition.cost_basis * currentPosition.quantity + price * quantity) / newQuantity
+      : currentPosition.cost_basis;
+    
+    const newUnrealizedPl = newMarketValue - (newCostBasis * newQuantity);
+    const newUnrealizedPlpc = newUnrealizedPl / (newCostBasis * newQuantity) * 100;
+    
+    console.log('Calculated new position values:', {
+      newQuantity,
+      newMarketValue,
+      newCostBasis,
+      newUnrealizedPl,
+      newUnrealizedPlpc
+    });
+    
+    // Update or insert position
+    if (newQuantity > 0) {
+      const { error: upsertError } = await supabase
+        .from('trading_positions')
+        .upsert({
+          user_id: userId,
+          symbol,
+          quantity: newQuantity,
+          market_value: newMarketValue,
+          cost_basis: newCostBasis,
+          unrealized_pl: newUnrealizedPl,
+          unrealized_plpc: newUnrealizedPlpc,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'user_id, symbol' });
+      
+      if (upsertError) {
+        console.error('Error updating position:', upsertError);
+        return;
+      }
+      console.log('Successfully updated position');
+    } else {
+      // Delete position if quantity is 0
+      const { error: deleteError } = await supabase
+        .from('trading_positions')
+        .delete()
+        .eq('user_id', userId)
+        .eq('symbol', symbol);
+      
+      if (deleteError) {
+        console.error('Error deleting position:', deleteError);
+        return;
+      }
+      console.log('Successfully deleted position');
+    }
+    
+    // Update portfolio summary
+    const { data: allPositions, error: allPositionsError } = await supabase
+      .from('trading_positions')
+      .select('market_value')
+      .eq('user_id', userId);
+    
+    if (allPositionsError) {
+      console.error('Error fetching all positions:', allPositionsError);
+      return;
+    }
+    
+    const totalEquity = allPositions?.reduce((sum, pos) => sum + pos.market_value, 0) || 0;
+    const cash = orderType === 'buy' 
+      ? portfolioData.cash - (price * quantity)
+      : portfolioData.cash + (price * quantity);
+    
+    if (cash < 0) {
+      console.error('Invalid trade: Would result in negative cash balance');
+      return;
+    }
+    
+    console.log('Updating portfolio summary:', { totalEquity, cash });
+    
+    const { error: portfolioUpdateError } = await supabase
+      .from('trading_portfolios')
+      .upsert({
+        user_id: userId,
+        equity: totalEquity,
+        cash,
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'user_id' });
+    
+    if (portfolioUpdateError) {
+      console.error('Error updating portfolio:', portfolioUpdateError);
+      return;
+    }
+    
+    console.log('=== Portfolio update completed successfully ===');
+  } catch (error) {
+    console.error('Error updating portfolio after trade:', error);
   }
 }
 
@@ -986,14 +1037,17 @@ async function getGeneralResponse(message: string) {
   }
 }
 
-// Store conversation in database
+// Store conversation in Supabase
 async function storeConversation(userId: string, userMessage: string, assistantResponse: string) {
   try {
-    console.log('=== Storing conversation ===');
     const timestamp = new Date().toISOString();
+    const newMessages = [
+      { role: 'user', content: userMessage, timestamp },
+      { role: 'assistant', content: assistantResponse, timestamp }
+    ];
 
     // Get existing conversation history
-    const { data: existingHistory, error: fetchError } = await supabase
+    const { data: existingData, error: fetchError } = await supabase
       .from('conversation_history')
       .select('messages')
       .eq('user_id', userId)
@@ -1001,17 +1055,10 @@ async function storeConversation(userId: string, userMessage: string, assistantR
 
     if (fetchError && fetchError.code !== 'PGRST116') {
       console.error('Error fetching conversation history:', fetchError);
-      throw fetchError;
+      return;
     }
 
-    // Prepare new messages
-    const newMessages = [
-      { role: 'user', content: userMessage, timestamp },
-      { role: 'assistant', content: assistantResponse, timestamp }
-    ];
-
-    // Combine with existing messages or create new array
-    let messages = existingHistory?.messages || [];
+    let messages = existingData?.messages || [];
     messages = [...messages, ...newMessages];
 
     // Keep only the last 100 messages
@@ -1019,7 +1066,7 @@ async function storeConversation(userId: string, userMessage: string, assistantR
       messages = messages.slice(-100);
     }
 
-    // Update conversation history
+    // Upsert conversation history
     const { error: upsertError } = await supabase
       .from('conversation_history')
       .upsert({
@@ -1032,13 +1079,9 @@ async function storeConversation(userId: string, userMessage: string, assistantR
 
     if (upsertError) {
       console.error('Error storing conversation:', upsertError);
-      throw upsertError;
     }
-
-    console.log('Conversation stored successfully');
   } catch (error) {
     console.error('Error in storeConversation:', error);
-    // Don't throw error to prevent breaking the main flow
   }
 }
 
@@ -1098,72 +1141,5 @@ async function storePortfolioInDatabase(userId: string, portfolioData: any) {
     }
   } catch (error) {
     console.error('Error storing portfolio:', error);
-  }
-}
-
-// Helper function to get market status and trading day info
-async function getMarketStatus() {
-  try {
-    const [clock, calendar] = await Promise.all([
-      alpaca.getClock(),
-      alpaca.getCalendar({
-        start: new Date().toISOString().split('T')[0],
-        end: new Date().toISOString().split('T')[0]
-      })
-    ]);
-
-    const now = new Date();
-    const marketDay = calendar[0];
-    
-    let status = {
-      is_open: clock.is_open,
-      next_open: new Date(clock.next_open),
-      next_close: new Date(clock.next_close),
-      timestamp: now,
-      trading_day: marketDay ? {
-        open: new Date(marketDay.open),
-        close: new Date(marketDay.close)
-      } : null
-    };
-
-    // Add trading hours remaining if market is open
-    if (status.is_open) {
-      const closeTime = new Date(clock.next_close);
-      const minutesRemaining = Math.round((closeTime.getTime() - now.getTime()) / (1000 * 60));
-      status = { ...status, minutes_remaining: minutesRemaining };
-    }
-
-    return status;
-  } catch (error) {
-    console.error('Error getting market status:', error);
-    throw error;
-  }
-}
-
-// Helper function to format market status message
-function formatMarketStatusMessage(status: any): string {
-  const formatTime = (date: Date) => {
-    return date.toLocaleTimeString('en-US', { 
-      hour: 'numeric', 
-      minute: '2-digit', 
-      timeZone: 'America/New_York'
-    });
-  };
-
-  const formatDate = (date: Date) => {
-    return date.toLocaleDateString('en-US', { 
-      weekday: 'long', 
-      month: 'long', 
-      day: 'numeric',
-      timeZone: 'America/New_York'
-    });
-  };
-
-  if (status.is_open) {
-    return `The market is currently OPEN. Trading will close at ${formatTime(status.next_close)} ET (in ${status.minutes_remaining} minutes).\n\nTrading hours today: ${formatTime(status.trading_day.open)} - ${formatTime(status.trading_day.close)} ET`;
-  } else {
-    const nextOpenDate = formatDate(status.next_open);
-    const nextOpenTime = formatTime(status.next_open);
-    return `The market is currently CLOSED. Next trading session starts on ${nextOpenDate} at ${nextOpenTime} ET.\n\nRegular trading hours are 9:30 AM - 4:00 PM ET, Monday through Friday.`;
   }
 }

@@ -1,0 +1,5 @@
+{
+  "schedule": "* 9-16 * * 1-5",
+  "function": "update-prices",
+  "description": "Update stock prices every minute during market hours (9 AM to 4 PM EST, Monday to Friday)"
+} 

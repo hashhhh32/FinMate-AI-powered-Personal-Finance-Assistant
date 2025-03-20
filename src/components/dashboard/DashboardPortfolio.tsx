@@ -26,10 +26,27 @@ import { ResponsiveContainer, PieChart, Pie, Cell, Legend, Tooltip } from "recha
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useTrading } from "@/hooks/use-trading";
 
+// Add type definition for transactions
+interface PortfolioTransaction {
+  id: string;
+  symbol: string;
+  transaction_type: 'buy' | 'sell';
+  shares: number;
+  price: number;
+  transaction_date: string;
+  total: number;
+}
+
+// Environment variables
+const ALPACA_API_KEY = import.meta.env.VITE_ALPACA_API_KEY || '';
+const ALPACA_API_SECRET = import.meta.env.VITE_ALPACA_SECRET_KEY || '';
+const ALPACA_API_URL = 'https://data.alpaca.markets';
+
 const DashboardPortfolio = () => {
   const { user } = useAuth();
   const [userPortfolio, setUserPortfolio] = useState<any[]>([]);
   const [isLoadingUserPortfolio, setIsLoadingUserPortfolio] = useState(true);
+  const [transactions, setTransactions] = useState<PortfolioTransaction[]>([]);
   const [portfolioSummary, setPortfolioSummary] = useState({
     totalValue: 0,
     totalCost: 0,
@@ -40,7 +57,7 @@ const DashboardPortfolio = () => {
 
   const { 
     holdings, 
-    transactions, 
+    transactions: portfolioTransactions, 
     isLoading, 
     addHolding,
     updateHolding,
@@ -82,113 +99,208 @@ const DashboardPortfolio = () => {
     setAssetAllocation(allocation);
   };
 
-  // Function to fetch user portfolio
+  // Function to safely format number with fallback
+  const safeNumberFormat = (value: number | null | undefined, decimals = 2) => {
+    if (value === null || value === undefined) return '0.00';
+    return Number(value).toFixed(decimals);
+  };
+
+  // Function to fetch user portfolio with correct calculations
   const fetchUserPortfolio = async () => {
-    if (!user?.id) return;
+    if (!user?.id) {
+      console.log('No user ID found');
+      return;
+    }
     
     try {
       setIsLoadingUserPortfolio(true);
-      const { data, error } = await supabase
-        .rpc('get_user_portfolio_summary', { p_user_id: user.id });
-      
-      if (error) {
-        console.error('Error fetching user portfolio:', error);
-        // Initialize empty portfolio data
-        setUserPortfolio([]);
-        updatePortfolioSummary({
-          totalValue: 0,
-          totalCost: 0,
-          totalProfit: 0,
-          profitPercentage: 0
-        });
-        updateAssetAllocation([]);
+      console.log('Fetching portfolio for user:', user.id);
+
+      // Get current positions
+      const { data: positionsData, error: positionsError } = await supabase
+        .from('trading_positions')
+        .select('*')
+        .eq('user_id', user.id);
+
+      if (positionsError) {
+        console.error('Error fetching positions:', positionsError);
+        toast.error('Failed to load positions data');
         return;
       }
-      
-      setUserPortfolio(data || []);
-      
-      // Update portfolio summary
-      const totalValue = data.reduce((sum, pos) => sum + (pos.total_market_value || 0), 0);
-      const totalCost = data.reduce((sum, pos) => sum + (pos.total_cost_basis || 0), 0);
-      const totalProfit = data.reduce((sum, pos) => sum + (pos.unrealized_pl || 0), 0);
-      const profitPercentage = data.length > 0 
-        ? data.reduce((sum, pos) => sum + (pos.unrealized_plpc || 0), 0) / data.length
-        : 0;
-      
-      // Update asset allocation
-      const newAllocation = data.map(position => ({
-        name: position.symbol,
-        value: position.total_market_value || 0,
-        color: getRandomColor()
+
+      // Process positions data
+      const positions = positionsData.map(position => ({
+        ...position,
+        total_value: position.cost_basis * position.quantity,
+        market_value: position.market_value,
+        unrealized_pl: position.unrealized_pl,
+        unrealized_plpc: position.unrealized_plpc
       }));
-      
-      // Update the portfolio data
-      updatePortfolioSummary({
-        totalValue,
-        totalCost,
+
+      console.log('Processed portfolio data:', { positions });
+      setUserPortfolio(positions);
+
+      // Calculate portfolio summary
+      const totalValue = positions.reduce((sum, pos) => sum + (pos.cost_basis * pos.quantity), 0);
+      const totalMarketValue = positions.reduce((sum, pos) => sum + pos.market_value, 0);
+      const totalProfit = positions.reduce((sum, pos) => sum + pos.unrealized_pl, 0);
+      const profitPercentage = totalValue > 0 ? (totalProfit / totalValue) * 100 : 0;
+
+      setPortfolioSummary({
+        totalValue: totalMarketValue,
+        totalCost: totalValue,
         totalProfit,
         profitPercentage
       });
-      
-      updateAssetAllocation(newAllocation);
+
+      // Calculate asset allocation
+      const allocation = positions.map(position => ({
+        name: position.symbol,
+        value: position.market_value,
+        color: getRandomColor()
+      }));
+      setAssetAllocation(allocation);
+
     } catch (error) {
-      console.error('Error fetching user portfolio:', error);
+      console.error('Error in fetchUserPortfolio:', error);
       toast.error('Failed to load portfolio data');
     } finally {
       setIsLoadingUserPortfolio(false);
     }
   };
 
-  // Fetch user's portfolio data
+  // Set up real-time subscription for portfolio updates
+  useEffect(() => {
+    if (!user?.id) return;
+
+    // Subscribe to portfolio changes
+    const portfolioSubscription = supabase
+      .channel('portfolio_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'trading_portfolios',
+          filter: `user_id=eq.${user.id}`
+        },
+        () => {
+          console.log('Portfolio updated, refreshing data...');
+          fetchUserPortfolio();
+        }
+      )
+      .subscribe();
+
+    // Subscribe to position changes
+    const positionsSubscription = supabase
+      .channel('position_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'trading_positions',
+          filter: `user_id=eq.${user.id}`
+        },
+        () => {
+          console.log('Positions updated, refreshing data...');
+          fetchUserPortfolio();
+        }
+      )
+      .subscribe();
+
+    // Cleanup subscriptions
+    return () => {
+      portfolioSubscription.unsubscribe();
+      positionsSubscription.unsubscribe();
+    };
+  }, [user?.id]);
+
+  // Fetch portfolio when component mounts or user changes
   useEffect(() => {
     fetchUserPortfolio();
   }, [user?.id]);
 
-  // Sync trading portfolio data with dashboard portfolio
-  useEffect(() => {
-    if (tradingPortfolio && !isLoadingPortfolio) {
-      // Update holdings based on trading positions
-      tradingPortfolio.positions.forEach(position => {
-        const existingHolding = holdings.find(h => h.symbol === position.symbol);
-        if (existingHolding) {
-          updateHolding(existingHolding.id, {
-            shares: position.quantity,
-            last_updated: new Date().toISOString()
-          });
-        } else {
-          addHolding({
-            symbol: position.symbol,
-            company_name: position.symbol, // You might want to fetch company name
-            shares: position.quantity,
-            purchase_price: position.cost_basis / position.quantity,
-            purchase_date: new Date().toISOString()
-          });
+  // Function to update prices from Alpaca API
+  const updatePrices = async () => {
+    try {
+      if (!user?.id) return;
+
+      // Get all unique symbols from positions
+      const { data: positions, error: positionsError } = await supabase
+        .from('trading_positions')
+        .select('symbol')
+        .eq('user_id', user.id);
+
+      if (positionsError) {
+        console.error('Error fetching positions:', positionsError);
+        return;
+      }
+
+      if (!positions?.length) return;
+
+      const symbols = positions.map(p => p.symbol);
+      console.log('Fetching prices for symbols:', symbols);
+
+      // Fetch prices from Alpaca API
+      const response = await fetch(`${ALPACA_API_URL}/v2/stocks/quotes/latest?symbols=${symbols.join(',')}`, {
+        headers: {
+          'APCA-API-KEY-ID': ALPACA_API_KEY,
+          'APCA-API-SECRET-KEY': ALPACA_API_SECRET
         }
       });
 
-      // Update portfolio summary
-      const newSummary = {
-        totalValue: tradingPortfolio.equity,
-        totalCost: tradingPortfolio.positions.reduce((sum, pos) => sum + pos.cost_basis, 0),
-        totalProfit: tradingPortfolio.positions.reduce((sum, pos) => sum + pos.unrealized_pl, 0),
-        profitPercentage: tradingPortfolio.positions.reduce((sum, pos) => sum + pos.unrealized_plpc, 0) / tradingPortfolio.positions.length
-      };
+      if (!response.ok) {
+        throw new Error(`Failed to fetch prices: ${response.statusText}`);
+      }
 
-      // Update asset allocation
-      const newAllocation = tradingPortfolio.positions.map(position => ({
-        name: position.symbol,
-        value: position.market_value,
-        color: getRandomColor()
-      }));
+      const data = await response.json();
 
-      // Refresh the portfolio data
-      fetchPortfolio();
+      // Update prices in database
+      for (const symbol of symbols) {
+        const quote = data[symbol];
+        if (quote?.ap || quote?.bp) { // Use ask price or bid price
+          const currentPrice = quote.ap || quote.bp;
+          
+          const { error: updateError } = await supabase.rpc('update_position_price', {
+            p_user_id: user.id,
+            p_symbol: symbol,
+            p_current_price: currentPrice
+          });
+
+          if (updateError) {
+            console.error(`Error updating price for ${symbol}:`, updateError);
+          }
+        }
+      }
+
+      // Refresh portfolio data
+      await fetchUserPortfolio();
+      
+      toast.success('Prices updated successfully');
+    } catch (error) {
+      console.error('Error updating prices:', error);
+      toast.error('Failed to update prices');
     }
-  }, [tradingPortfolio, isLoadingPortfolio]);
+  };
+
+  // Set up automatic price updates
+  useEffect(() => {
+    if (!user?.id) return;
+
+    // Update prices immediately
+    updatePrices();
+
+    // Set up interval for price updates (every 10 seconds)
+    const intervalId = setInterval(updatePrices, 10000);
+
+    // Cleanup interval on unmount
+    return () => clearInterval(intervalId);
+  }, [user?.id]);
 
   // Function to calculate average purchase price for a symbol
   const calculateAveragePurchasePrice = (symbol: string) => {
-    const symbolTransactions = transactions.filter(t => t.symbol === symbol);
+    const symbolTransactions = portfolioTransactions.filter(t => t.symbol === symbol);
     if (symbolTransactions.length === 0) return 0;
 
     let totalShares = 0;
@@ -431,7 +543,48 @@ const DashboardPortfolio = () => {
     }
   };
 
-  if (isLoading) {
+  // Function to fetch trading history
+  const fetchTradingHistory = async () => {
+    if (!user?.id) return;
+    
+    try {
+      const { data: historyData, error: historyError } = await supabase
+        .from('trading_history')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+
+      if (historyError) {
+        console.error('Error fetching trade history:', historyError);
+        toast.error('Failed to load trade history');
+        return;
+      }
+
+      if (historyData) {
+        setTransactions(historyData.map(trade => ({
+          id: trade.id,
+          symbol: trade.symbol,
+          transaction_type: trade.order_type,
+          shares: trade.quantity,
+          price: trade.price,
+          transaction_date: trade.created_at,
+          total: trade.quantity * trade.price
+        })));
+      }
+    } catch (error) {
+      console.error('Error fetching trade history:', error);
+      toast.error('Failed to load trade history');
+    }
+  };
+
+  // Add useEffect to fetch trading history
+  useEffect(() => {
+    if (user?.id) {
+      fetchTradingHistory();
+    }
+  }, [user?.id]);
+
+  if (isLoadingUserPortfolio) {
     return (
       <div className="flex items-center justify-center h-64">
         <p className="text-muted-foreground">Loading portfolio data...</p>
@@ -449,16 +602,9 @@ const DashboardPortfolio = () => {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => {
-            updateStockPrices();
-            fetchPortfolio();
-          }}>
+          <Button variant="outline" size="sm" onClick={fetchUserPortfolio}>
             <RefreshCcw className="h-4 w-4 mr-2" />
             Refresh Data
-          </Button>
-          <Button size="sm" onClick={() => setIsAddingHolding(true)}>
-            <Plus className="h-4 w-4 mr-2" />
-            Add Asset
           </Button>
         </div>
       </div>
@@ -469,7 +615,9 @@ const DashboardPortfolio = () => {
             <CardTitle className="text-lg font-medium">Total Value</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold">${portfolioSummary.totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+            <div className="text-3xl font-bold">
+              ${portfolioSummary.totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </div>
             <div className={`flex items-center mt-1 ${portfolioSummary.profitPercentage >= 0 ? "text-green-500" : "text-red-500"}`}>
               {portfolioSummary.profitPercentage >= 0 ? (
                 <TrendingUp className="h-4 w-4 mr-1" />
@@ -505,88 +653,14 @@ const DashboardPortfolio = () => {
             <CardTitle className="text-lg font-medium">Holdings</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold">{holdings.length}</div>
+            <div className="text-3xl font-bold">{userPortfolio.length}</div>
             <div className="flex items-center mt-1 text-muted-foreground">
               <Calendar className="h-4 w-4 mr-1" />
-              <span className="text-sm">{transactions.length} transactions recorded</span>
+              <span className="text-sm">{userPortfolio.length} positions tracked</span>
             </div>
           </CardContent>
         </Card>
       </div>
-
-      {isAddingHolding && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Add New Holding</CardTitle>
-            <CardDescription>Enter the details of the stock or investment you want to add</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-4">
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Symbol</label>
-                <Input name="symbol" value={newHolding.symbol} onChange={handleInputChange} placeholder="e.g., AAPL" />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Company Name</label>
-                <Input name="company_name" value={newHolding.company_name} onChange={handleInputChange} placeholder="e.g., Apple Inc." />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Shares</label>
-                <Input type="number" name="shares" value={newHolding.shares || ''} onChange={handleInputChange} placeholder="Number of shares" />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Purchase Price</label>
-                <Input type="number" name="purchase_price" value={newHolding.purchase_price || ''} onChange={handleInputChange} placeholder="Price per share" />
-              </div>
-            </div>
-          </CardContent>
-          <CardFooter className="flex justify-between">
-            <Button variant="outline" onClick={() => setIsAddingHolding(false)}>Cancel</Button>
-            <Button onClick={handleAddHolding}>Add Holding</Button>
-          </CardFooter>
-        </Card>
-      )}
-
-      {isAddingTransaction && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Record {newTransaction.transaction_type === 'buy' ? 'Buy' : 'Sell'} Transaction</CardTitle>
-            <CardDescription>Enter the details of your {newTransaction.transaction_type === 'buy' ? 'purchase' : 'sale'}</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-4">
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Symbol</label>
-                <Input name="symbol" value={newTransaction.symbol} disabled />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Transaction Type</label>
-                <select 
-                  name="transaction_type" 
-                  value={newTransaction.transaction_type} 
-                  onChange={handleTransactionInputChange as any}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <option value="buy">Buy</option>
-                  <option value="sell">Sell</option>
-                </select>
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Shares</label>
-                <Input type="number" name="shares" value={newTransaction.shares || ''} onChange={handleTransactionInputChange} placeholder="Number of shares" />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Price</label>
-                <Input type="number" name="price" value={newTransaction.price || ''} onChange={handleTransactionInputChange} placeholder="Price per share" />
-              </div>
-            </div>
-          </CardContent>
-          <CardFooter className="flex justify-between">
-            <Button variant="outline" onClick={() => setIsAddingTransaction(false)}>Cancel</Button>
-            <Button onClick={handleAddTransaction}>Record Transaction</Button>
-          </CardFooter>
-        </Card>
-      )}
 
       <Tabs defaultValue="holdings" className="space-y-4">
         <TabsList>
@@ -596,7 +670,7 @@ const DashboardPortfolio = () => {
         </TabsList>
         
         <TabsContent value="holdings" className="space-y-4">
-          {holdings.length > 0 ? (
+          {userPortfolio.length > 0 ? (
             <div className="rounded-md border">
               <Table>
                 <TableHeader>
@@ -611,91 +685,50 @@ const DashboardPortfolio = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {holdings.map((holding) => {
-                    const position = tradingPortfolio?.positions.find(p => p.symbol === holding.symbol);
-                    const currentPrice = position ? position.market_value / position.quantity : 0;
-                    const { profit, profitPercentage } = calculatePositionProfitLoss(holding);
-                    
-                    return (
-                      <TableRow key={holding.id}>
-                        {editingHoldingId === holding.id ? (
-                          <>
-                            <TableCell>
-                              <div className="space-y-1">
-                                <Input name="symbol" value={editFormData.symbol || ''} onChange={handleEditInputChange} />
-                                <Input name="company_name" value={editFormData.company_name || ''} onChange={handleEditInputChange} />
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              <Input name="shares" type="number" value={editFormData.shares || ''} onChange={handleEditInputChange} />
-                            </TableCell>
-                            <TableCell>
-                              <Input name="purchase_price" type="number" value={editFormData.purchase_price || ''} onChange={handleEditInputChange} />
-                            </TableCell>
-                            <TableCell>
-                              <Input name="current_price" type="number" value={editFormData.current_price || ''} onChange={handleEditInputChange} />
-                            </TableCell>
-                            <TableCell colSpan={2}></TableCell>
-                            <TableCell>
-                              <div className="flex space-x-2">
-                                <Button size="sm" variant="outline" onClick={saveEditing}>
-                                  <Check className="h-4 w-4" />
-                                </Button>
-                                <Button size="sm" variant="outline" onClick={cancelEditing}>
-                                  <X className="h-4 w-4" />
-                                </Button>
-                              </div>
-                            </TableCell>
-                          </>
-                        ) : (
-                          <>
-                            <TableCell>
-                              <div className="font-medium">{holding.symbol}</div>
-                              <div className="text-xs text-muted-foreground">{holding.company_name}</div>
-                            </TableCell>
-                            <TableCell>{holding.shares}</TableCell>
-                            <TableCell>${(position?.cost_basis / position?.quantity || 0).toFixed(2)}</TableCell>
-                            <TableCell>
-                              <div className="flex items-center gap-2">
-                                ${currentPrice.toFixed(2)}
-                                {profit !== 0 && (
-                                  <Badge variant={profit >= 0 ? "default" : "destructive"} className="text-xs">
-                                    {profit >= 0 ? "↑" : "↓"}
-                                  </Badge>
-                                )}
-                              </div>
-                            </TableCell>
-                            <TableCell>${position?.market_value.toFixed(2) || 0}</TableCell>
-                            <TableCell className={profit >= 0 ? "text-green-500" : "text-red-500"}>
-                              <div>
-                                {profit >= 0 ? "+" : ""}${profit.toFixed(2)}
-                              </div>
-                              <div className="text-xs">
-                                {profitPercentage >= 0 ? "+" : ""}
-                                {profitPercentage.toFixed(2)}%
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              <div className="flex space-x-2">
-                                <Button size="sm" variant="outline" onClick={() => startEditing(holding)}>
-                                  <Edit className="h-4 w-4" />
-                                </Button>
-                                <Button size="sm" variant="outline" onClick={() => prepareTransaction(holding, 'buy')}>
-                                  <Plus className="h-4 w-4" />
-                                </Button>
-                                <Button size="sm" variant="outline" onClick={() => prepareTransaction(holding, 'sell')}>
-                                  <TrendingDown className="h-4 w-4" />
-                                </Button>
-                                <Button size="sm" variant="outline" className="text-red-500" onClick={() => deleteHolding(holding.id)}>
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                              </div>
-                            </TableCell>
-                          </>
-                        )}
-                      </TableRow>
-                    );
-                  })}
+                  {userPortfolio.map((position) => (
+                    <TableRow key={`${position.symbol}-${position.user_id}`}>
+                      <TableCell>
+                        <div className="font-medium">{position.symbol || 'N/A'}</div>
+                      </TableCell>
+                      <TableCell>{safeNumberFormat(position.quantity, 0)}</TableCell>
+                      <TableCell>${safeNumberFormat(position.cost_basis)}</TableCell>
+                      <TableCell>${safeNumberFormat(position.current_price)}</TableCell>
+                      <TableCell>
+                        <div>${safeNumberFormat(position.total_value)}</div>
+                        <div className="text-xs text-muted-foreground">Market: ${safeNumberFormat(position.market_value)}</div>
+                      </TableCell>
+                      <TableCell className={Number(position.unrealized_pl || 0) >= 0 ? "text-green-500" : "text-red-500"}>
+                        <div>
+                          {Number(position.unrealized_pl || 0) >= 0 ? "+" : ""}
+                          ${safeNumberFormat(position.unrealized_pl)}
+                        </div>
+                        <div className="text-xs">
+                          {Number(position.unrealized_plpc || 0) >= 0 ? "+" : ""}
+                          {safeNumberFormat(position.unrealized_plpc)}%
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex space-x-2">
+                          <Button 
+                            size="sm" 
+                            variant="outline" 
+                            onClick={() => handleTrade(position.symbol, 1, 'buy')}
+                            disabled={!position.symbol}
+                          >
+                            <Plus className="h-4 w-4" />
+                          </Button>
+                          <Button 
+                            size="sm" 
+                            variant="outline" 
+                            onClick={() => handleTrade(position.symbol, 1, 'sell')}
+                            disabled={!position.symbol || Number(position.quantity) <= 0}
+                          >
+                            <TrendingDown className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
                 </TableBody>
               </Table>
             </div>
@@ -703,7 +736,7 @@ const DashboardPortfolio = () => {
             <Card className="p-8 text-center">
               <CardContent>
                 <p className="text-muted-foreground mb-4">You don't have any holdings yet.</p>
-                <Button onClick={() => setIsAddingHolding(true)}>
+                <Button onClick={() => handleTrade('', 0, 'buy')}>
                   <Plus className="h-4 w-4 mr-2" />
                   Add Your First Investment
                 </Button>
@@ -766,25 +799,24 @@ const DashboardPortfolio = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {transactions.map((transaction) => {
-                    const total = transaction.shares * transaction.price;
-                    const date = new Date(transaction.transaction_date);
-                    
-                    return (
-                      <TableRow key={transaction.id}>
-                        <TableCell>{date.toLocaleDateString()}</TableCell>
-                        <TableCell>{transaction.symbol}</TableCell>
-                        <TableCell>
-                          <Badge variant={transaction.transaction_type === 'buy' ? 'default' : 'destructive'}>
-                            {transaction.transaction_type.toUpperCase()}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>{transaction.shares}</TableCell>
-                        <TableCell>${transaction.price.toFixed(2)}</TableCell>
-                        <TableCell>${total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
-                      </TableRow>
-                    );
-                  })}
+                  {transactions.map((transaction) => (
+                    <TableRow key={transaction.id}>
+                      <TableCell>
+                        {new Date(transaction.transaction_date).toLocaleDateString()}
+                      </TableCell>
+                      <TableCell>
+                        <div className="font-medium">{transaction.symbol}</div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={transaction.transaction_type === 'buy' ? 'default' : 'destructive'}>
+                          {transaction.transaction_type.toUpperCase()}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>{transaction.shares}</TableCell>
+                      <TableCell>${safeNumberFormat(transaction.price)}</TableCell>
+                      <TableCell>${safeNumberFormat(transaction.total)}</TableCell>
+                    </TableRow>
+                  ))}
                 </TableBody>
               </Table>
             </div>

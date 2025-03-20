@@ -1,4 +1,3 @@
-
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -11,7 +10,7 @@ type AuthContextType = {
   loading: boolean;
   getUserName: () => string;
   signIn: (email: string, password: string) => Promise<void>;
-  signUp: (email: string, password: string, name: string) => Promise<void>;
+  signUp: (email: string, password: string, name: string) => Promise<{ user: User | null; session: Session | null }>;
   signOut: () => Promise<void>;
 };
 
@@ -89,24 +88,69 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const signUp = async (email: string, password: string, name: string) => {
     try {
       setLoading(true);
-      
-      const { error } = await supabase.auth.signUp({
+
+      // Validate inputs
+      if (!email || !password || !name) {
+        throw new Error('Please fill in all fields');
+      }
+
+      if (password.length < 6) {
+        throw new Error('Password must be at least 6 characters long');
+      }
+
+      // Sign up the user with metadata
+      const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
           data: {
-            name,
+            full_name: name,
+            avatar_url: null,
           },
+          emailRedirectTo: `${window.location.origin}/auth/callback`
         }
       });
 
       if (error) {
+        console.error('Sign up error:', error);
+        
+        if (error.message.includes('User already registered')) {
+          throw new Error('An account with this email already exists');
+        } else if (error.message.includes('Password')) {
+          throw new Error('Password must be at least 6 characters long');
+        } else if (error.message.includes('rate limit')) {
+          throw new Error('Too many attempts. Please try again later.');
+        } else if (error.message.includes('Database error')) {
+          // Log the full error for debugging but show a user-friendly message
+          console.error('Database error details:', error);
+          throw new Error('Unable to create account. Please try again in a few minutes.');
+        }
+        
         throw error;
       }
 
-      toast.success("Account created successfully! Please check your email for verification.");
+      if (!data?.user) {
+        throw new Error('Failed to create user account');
+      }
+
+      // Check if email confirmation is required
+      if (data?.session === null) {
+        toast.success("Please check your email to confirm your account");
+      } else {
+        toast.success("Account created successfully!");
+      }
+
+      return { user: data.user, session: data.session };
     } catch (error: any) {
-      const message = error?.message || "Failed to create account";
+      console.error('Sign up error:', error);
+      
+      // Create a user-friendly error message
+      let message = 'Failed to create account';
+      
+      if (error?.message) {
+        message = error.message;
+      }
+      
       toast.error(message);
       throw error;
     } finally {

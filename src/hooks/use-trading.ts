@@ -2,6 +2,48 @@ import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import { createClient } from "@supabase/supabase-js";
+
+// Define types
+interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: string;
+}
+
+interface Database {
+  public: {
+    Tables: {
+      conversation_history: {
+        Row: {
+          id: string;
+          user_id: string;
+          messages: ChatMessage[];
+          last_updated: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          messages?: ChatMessage[];
+          last_updated?: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          messages?: ChatMessage[];
+          last_updated?: string;
+          created_at?: string;
+        };
+      };
+      // ... other existing tables ...
+    };
+  };
+}
+
+// Type the supabase client
+const typedSupabase = supabase as unknown as ReturnType<typeof createClient<Database>>;
 
 export type TradeOrder = {
   id: string;
@@ -79,6 +121,7 @@ export type TradingConversation = {
 export function useTrading() {
   const [isLoadingPortfolio, setIsLoadingPortfolio] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
   const [recentOrders, setRecentOrders] = useState<TradeOrder[]>([]);
   const [conversations, setConversations] = useState<Array<{
@@ -89,76 +132,86 @@ export function useTrading() {
   const { toast } = useToast();
   const { user } = useAuth();
 
-  // Fetch user's portfolio on initial load
+  // Fetch user's data on initial load
   useEffect(() => {
     if (user) {
-      fetchPortfolio();
-      fetchRecentOrders();
-      fetchConversations();
+      Promise.all([
+        fetchPortfolio(),
+        fetchRecentOrders(),
+        fetchConversations()
+      ]).finally(() => {
+        setIsLoadingHistory(false);
+      });
     }
   }, [user]);
 
-  // Set up realtime subscription for portfolio updates
+  // Set up realtime subscription for conversation updates
   useEffect(() => {
     if (!user) return;
 
-    const portfolioChannel = supabase
-      .channel('portfolio-changes')
+    const conversationsChannel = supabase
+      .channel('conversation-changes')
       .on(
         'postgres_changes',
         {
           event: '*',
           schema: 'public',
-          table: 'trading_portfolios',
+          table: 'conversation_history',
           filter: `user_id=eq.${user.id}`
         },
         () => {
-          // Refresh portfolio data when it changes
-          fetchPortfolio();
-        }
-      )
-      .subscribe();
-
-    const positionsChannel = supabase
-      .channel('positions-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'trading_positions',
-          filter: `user_id=eq.${user.id}`
-        },
-        () => {
-          // Refresh portfolio data when positions change
-          fetchPortfolio();
-        }
-      )
-      .subscribe();
-
-    const ordersChannel = supabase
-      .channel('orders-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'trading_orders',
-          filter: `user_id=eq.${user.id}`
-        },
-        () => {
-          // Refresh orders when new ones are added
-          fetchRecentOrders();
+          // Refresh conversations when they change
+          fetchConversations();
         }
       )
       .subscribe();
 
     return () => {
-      supabase.removeChannel(portfolioChannel);
-      supabase.removeChannel(positionsChannel);
-      supabase.removeChannel(ordersChannel);
+      supabase.removeChannel(conversationsChannel);
     };
   }, [user]);
+
+  // Fetch conversation history
+  const fetchConversations = async () => {
+    if (!user) return;
+
+    try {
+      console.log('Fetching conversations for user:', user.id);
+      
+      const { data, error } = await typedSupabase
+        .from('conversation_history')
+        .select('messages')
+        .eq('user_id', user.id)
+        .single();
+      
+      if (error) {
+        if (error.code === 'PGRST116') {
+          // No conversations yet, initialize with empty array
+          setConversations([]);
+          return;
+        }
+        console.error('Error fetching conversations:', error);
+        throw error;
+      }
+      
+      if (data?.messages) {
+        // Sort messages by timestamp
+        const sortedMessages = [...data.messages].sort(
+          (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+        );
+        setConversations(sortedMessages);
+      } else {
+        setConversations([]);
+      }
+    } catch (error) {
+      console.error('Error fetching conversations:', error);
+      toast({
+        title: "Error fetching conversation history",
+        description: "Failed to load your previous conversations",
+        variant: "destructive"
+      });
+    }
+  };
 
   // Fetch portfolio data from Supabase
   const fetchPortfolio = async () => {
@@ -259,48 +312,6 @@ export function useTrading() {
     }
   };
 
-  // Fetch recent conversations
-  const fetchConversations = async () => {
-    if (!user) return;
-
-    try {
-      console.log('Fetching conversations for user:', user.id);
-      
-      const { data, error } = await supabase
-        .rpc('get_trading_conversations', { user_id_param: user.id });
-      
-      if (error) {
-        console.error('Conversations fetch error:', error);
-        throw error;
-      }
-      
-      console.log('Fetched conversations data:', data);
-      
-      // Format data into user/assistant pairs
-      const formattedConversations = data ? data.map(item => [
-        {
-          role: 'user' as const,
-          content: item.user_message,
-          timestamp: item.message_timestamp
-        },
-        {
-          role: 'assistant' as const,
-          content: item.assistant_response,
-          timestamp: item.message_timestamp
-        }
-      ]).flat() : [];
-      
-      // Sort by timestamp
-      formattedConversations.sort((a, b) => 
-        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-      );
-      
-      setConversations(formattedConversations);
-    } catch (error: any) {
-      console.error('Error fetching conversations:', error);
-    }
-  };
-
   // Send message to trading assistant
   const sendMessage = async (message: string, messageType: 'text' | 'voice' = 'text'): Promise<TradingAssistantResponse> => {
     if (!user) {
@@ -383,10 +394,12 @@ export function useTrading() {
     portfolio,
     isLoadingPortfolio,
     isProcessing,
+    isLoadingHistory,
     recentOrders,
     conversations,
     sendMessage,
     refreshPortfolio: fetchPortfolio,
-    refreshOrders: fetchRecentOrders
+    refreshOrders: fetchRecentOrders,
+    refreshConversations: fetchConversations
   };
 }

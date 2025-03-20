@@ -4,13 +4,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Bot, User, Send, DollarSign, TrendingUp, TrendingDown, Loader2, AlertCircle, History } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
+import { useToast } from "@/components/ui/use-toast";
 import { useTrading } from "@/hooks/use-trading";
 import VoiceInput from "./VoiceInput";
 import { format } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { useAuth } from "@/context/AuthContext";
+import { useAuth } from "@/hooks/use-auth";
 import {
   Dialog,
   DialogContent,
@@ -26,7 +26,16 @@ interface TradingAssistantProps {
 
 const TradingAssistant: React.FC<TradingAssistantProps> = ({ initialPrompt }) => {
   const { toast } = useToast();
-  const { sendMessage, conversations, isProcessing, portfolio, recentOrders, refreshPortfolio, refreshOrders } = useTrading();
+  const { 
+    sendMessage, 
+    conversations, 
+    isProcessing, 
+    isLoadingHistory,
+    portfolio, 
+    recentOrders, 
+    refreshPortfolio, 
+    refreshOrders 
+  } = useTrading();
   const [input, setInput] = useState(initialPrompt || "");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { user } = useAuth();
@@ -186,7 +195,12 @@ const TradingAssistant: React.FC<TradingAssistantProps> = ({ initialPrompt }) =>
         </CardHeader>
         <CardContent className="flex-1 overflow-y-auto">
           <div className="space-y-4">
-            {conversations.length === 0 ? (
+            {isLoadingHistory ? (
+              <div className="flex items-center justify-center h-full">
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                <span className="ml-2 text-muted-foreground">Loading conversations...</span>
+              </div>
+            ) : conversations.length === 0 ? (
               <div className="text-center py-8">
                 <DollarSign className="h-12 w-12 mx-auto text-muted-foreground/50" />
                 <p className="mt-2 text-muted-foreground">
