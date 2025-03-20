@@ -1,10 +1,9 @@
-
 import React, { useState, useRef, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Bot, User, Send, DollarSign, TrendingUp, TrendingDown, Loader2, AlertCircle } from "lucide-react";
+import { Bot, User, Send, DollarSign, TrendingUp, TrendingDown, Loader2, AlertCircle, History } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useTrading } from "@/hooks/use-trading";
 import VoiceInput from "./VoiceInput";
@@ -12,6 +11,15 @@ import { format } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useAuth } from "@/context/AuthContext";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { cn } from "@/lib/utils";
 
 interface TradingAssistantProps {
   initialPrompt?: string;
@@ -23,7 +31,9 @@ const TradingAssistant: React.FC<TradingAssistantProps> = ({ initialPrompt }) =>
   const [input, setInput] = useState(initialPrompt || "");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { user } = useAuth();
+  const [showHistory, setShowHistory] = useState(false);
 
+  // Scroll to bottom when new messages arrive
   useEffect(() => {
     scrollToBottom();
   }, [conversations]);
@@ -104,18 +114,49 @@ const TradingAssistant: React.FC<TradingAssistantProps> = ({ initialPrompt }) =>
   }
 
   return (
-    <div className="flex flex-col space-y-4 h-full">
-      <Card className="flex flex-col flex-1">
-        <CardHeader className="flex flex-row items-center justify-between">
-          <div>
-            <CardTitle>Trading Assistant</CardTitle>
-            <CardDescription>
-              Ask questions, get market data, or execute trades with text or voice commands
-            </CardDescription>
-          </div>
-          <Button variant="outline" size="sm" onClick={handleRefresh}>
-            Refresh Data
-          </Button>
+    <div className="grid gap-4">
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+          <CardTitle className="text-lg">Trading Assistant</CardTitle>
+          <Dialog>
+            <DialogTrigger asChild>
+              <Button variant="outline" size="icon">
+                <History className="h-4 w-4" />
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-2xl">
+              <DialogHeader>
+                <DialogTitle>Conversation History</DialogTitle>
+              </DialogHeader>
+              <ScrollArea className="h-[500px] pr-4">
+                <div className="space-y-4">
+                  {conversations.map((msg, i) => (
+                    <div
+                      key={i}
+                      className={cn(
+                        "flex flex-col space-y-2 text-sm",
+                        msg.role === "user" ? "items-end" : "items-start"
+                      )}
+                    >
+                      <div
+                        className={cn(
+                          "rounded-lg px-3 py-2 max-w-[85%]",
+                          msg.role === "user"
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted"
+                        )}
+                      >
+                        {msg.content}
+                      </div>
+                      <span className="text-xs text-muted-foreground">
+                        {new Date(msg.timestamp).toLocaleString()}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </ScrollArea>
+            </DialogContent>
+          </Dialog>
         </CardHeader>
         <CardContent className="flex-1 overflow-y-auto">
           <div className="space-y-4">

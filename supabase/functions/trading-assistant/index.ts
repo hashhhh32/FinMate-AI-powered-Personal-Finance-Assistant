@@ -1,5 +1,6 @@
-// Follow the Supabase Edge Function format
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.7'
+/// <reference lib="deno.ns" />
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.7';
 
 // Define CORS headers
 const corsHeaders = {
@@ -23,14 +24,88 @@ const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY') || '';
 // Alpha Vantage API key (reusing existing key)
 const ALPHA_VANTAGE_API_KEY = 'ERZP1A2SEHQWGFE1';
 
+interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: string;
+}
+
+interface ConversationHistory {
+  messages: ChatMessage[];
+  lastUpdated: string;
+}
+
+// Add this function to store conversation history
+async function storeConversationHistory(userId: string, message: ChatMessage) {
+  try {
+    // Get existing conversation history
+    const { data: existingHistory, error: fetchError } = await supabase
+      .from('conversation_history')
+      .select('messages')
+      .eq('user_id', userId)
+      .single();
+    
+    let messages: ChatMessage[] = [];
+    if (!fetchError && existingHistory) {
+      messages = existingHistory.messages || [];
+    }
+    
+    // Add new message
+    messages.push(message);
+    
+    // Update or insert conversation history
+    const { error: upsertError } = await supabase
+      .from('conversation_history')
+      .upsert({
+        user_id: userId,
+        messages,
+        lastUpdated: new Date().toISOString()
+      }, { onConflict: 'user_id' });
+    
+    if (upsertError) {
+      console.error('Error storing conversation history:', upsertError);
+    }
+  } catch (error) {
+    console.error('Error in storeConversationHistory:', error);
+  }
+}
+
 // Define the main handler for the Edge Function
-Deno.serve(async (req) => {
-  // Handle CORS preflight requests
+serve(async (req) => {
+  // Add CORS headers
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+    return new Response('ok', {
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'POST',
+        'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+      }
+    });
   }
 
   try {
+    // Add CORS headers to all responses
+    const corsHeaders = {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'POST',
+      'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    };
+
+    // Extract the JWT token from the request
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+      return new Response(
+        JSON.stringify({ error: 'No authorization header' }),
+        { 
+          status: 401,
+          headers: {
+            'Content-Type': 'application/json',
+            ...corsHeaders
+          }
+        }
+      );
+    }
+
     console.log('=== Starting request processing ===');
     console.log('Request method:', req.method);
     console.log('Request headers:', Object.fromEntries(req.headers.entries()));
@@ -85,8 +160,8 @@ Deno.serve(async (req) => {
     } catch (error) {
       console.error('Alpaca API connectivity test error:', error);
       return new Response(
-        JSON.stringify({
-          success: false,
+        JSON.stringify({ 
+          success: false, 
           message: "I'm having trouble connecting to the trading service. Please verify your API credentials.",
           debug: {
             error: error.message,
@@ -97,6 +172,13 @@ Deno.serve(async (req) => {
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
       );
     }
+    
+    // Store user message
+    await storeConversationHistory(userId, {
+      role: 'user',
+      content: message,
+      timestamp: new Date().toISOString()
+    });
     
     // Process message with Gemini
     console.log('=== Processing message with Gemini ===');
@@ -116,8 +198,8 @@ Deno.serve(async (req) => {
     } catch (error) {
       console.error('Gemini processing error:', error);
       return new Response(
-        JSON.stringify({
-          success: false,
+        JSON.stringify({ 
+          success: false, 
           message: 'Error processing your request with AI',
           debug: {
             error: error.message,
@@ -133,26 +215,26 @@ Deno.serve(async (req) => {
     let response;
     try {
       switch (intent?.action) {
-        case 'GET_STOCK_PRICE':
+      case 'GET_STOCK_PRICE':
           console.log('Getting stock price for:', intent.symbol);
-          response = await getStockPrice(intent.symbol);
-          break;
-        case 'BUY_STOCK':
+        response = await getStockPrice(intent.symbol);
+        break;
+      case 'BUY_STOCK':
           console.log('Executing buy order for:', intent.symbol, intent.quantity);
-          response = await executeTrade(userId, 'buy', intent.symbol, intent.quantity);
-          break;
-        case 'SELL_STOCK':
+        response = await executeTrade(userId, 'buy', intent.symbol, intent.quantity);
+        break;
+      case 'SELL_STOCK':
           console.log('Executing sell order for:', intent.symbol, intent.quantity);
-          response = await executeTrade(userId, 'sell', intent.symbol, intent.quantity);
-          break;
-        case 'GET_PORTFOLIO':
+        response = await executeTrade(userId, 'sell', intent.symbol, intent.quantity);
+        break;
+      case 'GET_PORTFOLIO':
           console.log('Getting portfolio for user:', userId);
-          response = await getPortfolio(userId);
-          break;
-        default:
+        response = await getPortfolio(userId);
+        break;
+      default:
           console.log('Getting general response');
-          response = await getGeneralResponse(message);
-          break;
+        response = await getGeneralResponse(message);
+        break;
       }
       console.log('Action response:', response);
       
@@ -179,11 +261,18 @@ Deno.serve(async (req) => {
     // Store conversation
     console.log('=== Storing conversation ===');
     try {
-      await storeConversation(userId, message, response.message);
+    await storeConversation(userId, message, response.message);
     } catch (error) {
       console.error('Error storing conversation:', error);
       // Don't fail the request if conversation storage fails
     }
+    
+    // Store assistant response
+    await storeConversationHistory(userId, {
+      role: 'assistant',
+      content: response.message,
+      timestamp: new Date().toISOString()
+    });
     
     console.log('=== Request processing complete ===');
     return new Response(
@@ -195,8 +284,8 @@ Deno.serve(async (req) => {
     console.error('Fatal error in request processing:', error);
     console.error('Error stack:', error.stack);
     return new Response(
-      JSON.stringify({
-        success: false,
+      JSON.stringify({ 
+        success: false, 
         message: "I'm having trouble processing your request right now. Please try again later.",
         debug: {
           error: error.message,
@@ -216,7 +305,27 @@ async function processMessageWithGemini(message) {
       throw new Error('GEMINI_API_KEY_MISSING');
     }
     
-    // Updated Gemini API endpoint to match working Python implementation
+    // Extract stock symbol and quantity before Gemini processing
+    const buyMatch = message.match(/buy\s+(\d+)\s+shares?\s+of\s+([A-Z]{1,5})/i);
+    const sellMatch = message.match(/sell\s+(\d+)\s+shares?\s+of\s+([A-Z]{1,5})/i);
+    const match = buyMatch || sellMatch;
+    
+    if (match) {
+      const quantity = parseInt(match[1]);
+      const symbol = match[2];
+      const action = buyMatch ? 'BUY_STOCK' : 'SELL_STOCK';
+      
+      console.log('Extracted trade details:', { action, symbol, quantity });
+      
+      return {
+        action,
+        symbol,
+        quantity,
+        confidence: 0.95
+      };
+    }
+    
+    // Fallback to Gemini processing for other queries
     const url = `https://generativelanguage.googleapis.com/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
     console.log('Sending request to Gemini API...');
     
@@ -256,22 +365,13 @@ async function processMessageWithGemini(message) {
         statusText: response.statusText,
         error: errorText
       });
-      
-      // Handle specific error cases
-      if (response.status === 404) {
-        throw new Error('GEMINI_API_ENDPOINT_NOT_FOUND');
-      } else if (response.status === 403) {
-        throw new Error('GEMINI_API_KEY_INVALID');
-      } else {
-        throw new Error(`Gemini API error: ${response.status} - ${errorText}`);
-      }
+      throw new Error(`Gemini API error: ${response.status} - ${errorText}`);
     }
     
     const data = await response.json();
     console.log('Gemini API raw response:', JSON.stringify(data));
     
     if (!data.candidates?.[0]?.content?.parts?.[0]?.text) {
-      console.error('Invalid Gemini API response format:', data);
       throw new Error('GEMINI_INVALID_RESPONSE_FORMAT');
     }
     
@@ -280,12 +380,11 @@ async function processMessageWithGemini(message) {
     
     const jsonMatch = textResponse.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
-      console.error('No JSON found in Gemini response');
       throw new Error('GEMINI_NO_JSON_FOUND');
     }
     
-    try {
-      const intentJson = JSON.parse(jsonMatch[0]);
+      try {
+        const intentJson = JSON.parse(jsonMatch[0]);
       console.log('Parsed intent:', intentJson);
       
       // Validate intent structure
@@ -293,76 +392,18 @@ async function processMessageWithGemini(message) {
         throw new Error(`Invalid action in intent: ${intentJson.action}`);
       }
       
-      // Set default values for missing fields
-      if (intentJson.action === 'GET_STOCK_PRICE' || intentJson.action === 'BUY_STOCK' || intentJson.action === 'SELL_STOCK') {
-        if (!intentJson.symbol) {
-          const symbolMatch = message.match(/[A-Z]{1,5}/);
-          intentJson.symbol = symbolMatch ? symbolMatch[0] : null;
-        }
-        
-        if (intentJson.action !== 'GET_STOCK_PRICE' && !intentJson.quantity) {
-          const quantityMatch = message.match(/\d+/);
-          intentJson.quantity = quantityMatch ? parseInt(quantityMatch[0]) : 1;
-        }
-      }
+      // Use extracted symbol and quantity if available
+      if (symbol) intentJson.symbol = symbol;
+      if (quantity) intentJson.quantity = quantity;
       
-      return intentJson;
-    } catch (e) {
-      console.error('Error parsing JSON from Gemini response:', e);
+        return intentJson;
+      } catch (e) {
+        console.error('Error parsing JSON from Gemini response:', e);
       throw new Error('GEMINI_INVALID_JSON');
     }
   } catch (error) {
     console.error('Error in Gemini processing:', error);
-    
-    // Fallback to basic intent parsing if Gemini fails
-    console.log('Attempting fallback intent parsing...');
-    try {
-      const lowercaseMessage = message.toLowerCase();
-      
-      // Extract stock symbol (assumes uppercase 1-5 letter sequence)
-      const symbolMatch = message.match(/[A-Z]{1,5}/);
-      const symbol = symbolMatch ? symbolMatch[0] : null;
-      
-      // Extract quantity
-      const quantityMatch = message.match(/\d+/);
-      const quantity = quantityMatch ? parseInt(quantityMatch[0]) : 1;
-      
-      if (lowercaseMessage.includes('price') || lowercaseMessage.includes('worth')) {
-        return {
-          action: 'GET_STOCK_PRICE',
-          symbol,
-          quantity: null,
-          confidence: 0.8
-        };
-      } else if (lowercaseMessage.includes('buy')) {
-        return {
-          action: 'BUY_STOCK',
-          symbol,
-          quantity,
-          confidence: 0.8
-        };
-      } else if (lowercaseMessage.includes('sell')) {
-        return {
-          action: 'SELL_STOCK',
-          symbol,
-          quantity,
-          confidence: 0.8
-        };
-      } else if (lowercaseMessage.includes('portfolio')) {
-        return {
-          action: 'GET_PORTFOLIO',
-          symbol: null,
-          quantity: null,
-          confidence: 0.8
-        };
-      }
-      
-      // If no specific intent is found, throw the original error
-      throw error;
-    } catch (fallbackError) {
-      console.error('Fallback intent parsing failed:', fallbackError);
-      throw error; // Throw the original error
-    }
+    throw error;
   }
 }
 
@@ -652,8 +693,8 @@ async function executeTrade(userId: string, orderType: 'buy' | 'sell', symbol: s
     }
     
     console.log('=== Trade execution complete ===');
-    return {
-      success: true,
+      return {
+        success: true,
       message: `Successfully placed order to ${orderType} ${quantity} shares of ${symbol} at $${currentPrice.toFixed(2)}. Order ID: ${orderData.id}, Status: ${orderData.status}`,
       data: {
         order: orderData,
@@ -673,9 +714,13 @@ async function executeTrade(userId: string, orderType: 'buy' | 'sell', symbol: s
 
 // New function to update portfolio after trade
 async function updatePortfolioAfterTrade(userId: string, symbol: string, quantity: number, price: number, orderType: 'buy' | 'sell') {
+  console.log('=== Starting portfolio update after trade ===');
+  console.log('Trade details:', { userId, symbol, quantity, price, orderType });
+
   try {
     // Get current portfolio data
-    const { data: portfolioData, error: portfolioError } = await supabase
+    let portfolioData;
+    const { data: portfolioResult, error: portfolioError } = await supabase
       .from('trading_portfolios')
       .select('*')
       .eq('user_id', userId)
@@ -683,8 +728,33 @@ async function updatePortfolioAfterTrade(userId: string, symbol: string, quantit
     
     if (portfolioError) {
       console.error('Error fetching portfolio:', portfolioError);
-      return;
+      if (portfolioError.code === 'PGRST116') { // No portfolio found
+        // Create initial portfolio if it doesn't exist
+        const { data: newPortfolio, error: createError } = await supabase
+          .from('trading_portfolios')
+          .insert({
+            user_id: userId,
+            equity: 0,
+            cash: 100000, // Default starting cash
+            updated_at: new Date().toISOString()
+          })
+          .select()
+          .single();
+        
+        if (createError) {
+          console.error('Error creating initial portfolio:', createError);
+          return;
+        }
+        
+        portfolioData = newPortfolio;
+      } else {
+        return;
+      }
+    } else {
+      portfolioData = portfolioResult;
     }
+    
+    console.log('Current portfolio data:', portfolioData);
     
     // Get current positions
     const { data: positionsData, error: positionsError } = await supabase
@@ -694,7 +764,7 @@ async function updatePortfolioAfterTrade(userId: string, symbol: string, quantit
       .eq('symbol', symbol)
       .single();
     
-    if (positionsError && positionsError.code !== 'PGRST116') { // PGRST116 is "no rows returned"
+    if (positionsError && positionsError.code !== 'PGRST116') {
       console.error('Error fetching positions:', positionsError);
       return;
     }
@@ -708,10 +778,17 @@ async function updatePortfolioAfterTrade(userId: string, symbol: string, quantit
       unrealized_plpc: 0
     };
     
+    console.log('Current position data:', currentPosition);
+    
     // Calculate new position values
     const newQuantity = orderType === 'buy' 
       ? currentPosition.quantity + quantity 
       : currentPosition.quantity - quantity;
+    
+    if (newQuantity < 0) {
+      console.error('Invalid trade: Would result in negative shares');
+      return;
+    }
     
     const newMarketValue = newQuantity * price;
     const newCostBasis = orderType === 'buy'
@@ -720,6 +797,14 @@ async function updatePortfolioAfterTrade(userId: string, symbol: string, quantit
     
     const newUnrealizedPl = newMarketValue - (newCostBasis * newQuantity);
     const newUnrealizedPlpc = newUnrealizedPl / (newCostBasis * newQuantity) * 100;
+    
+    console.log('Calculated new position values:', {
+      newQuantity,
+      newMarketValue,
+      newCostBasis,
+      newUnrealizedPl,
+      newUnrealizedPlpc
+    });
     
     // Update or insert position
     if (newQuantity > 0) {
@@ -738,7 +823,9 @@ async function updatePortfolioAfterTrade(userId: string, symbol: string, quantit
       
       if (upsertError) {
         console.error('Error updating position:', upsertError);
+        return;
       }
+      console.log('Successfully updated position');
     } else {
       // Delete position if quantity is 0
       const { error: deleteError } = await supabase
@@ -749,19 +836,33 @@ async function updatePortfolioAfterTrade(userId: string, symbol: string, quantit
       
       if (deleteError) {
         console.error('Error deleting position:', deleteError);
+        return;
       }
+      console.log('Successfully deleted position');
     }
     
     // Update portfolio summary
-    const { data: allPositions } = await supabase
+    const { data: allPositions, error: allPositionsError } = await supabase
       .from('trading_positions')
       .select('market_value')
       .eq('user_id', userId);
+    
+    if (allPositionsError) {
+      console.error('Error fetching all positions:', allPositionsError);
+      return;
+    }
     
     const totalEquity = allPositions?.reduce((sum, pos) => sum + pos.market_value, 0) || 0;
     const cash = orderType === 'buy' 
       ? portfolioData.cash - (price * quantity)
       : portfolioData.cash + (price * quantity);
+    
+    if (cash < 0) {
+      console.error('Invalid trade: Would result in negative cash balance');
+      return;
+    }
+    
+    console.log('Updating portfolio summary:', { totalEquity, cash });
     
     const { error: portfolioUpdateError } = await supabase
       .from('trading_portfolios')
@@ -774,7 +875,10 @@ async function updatePortfolioAfterTrade(userId: string, symbol: string, quantit
     
     if (portfolioUpdateError) {
       console.error('Error updating portfolio:', portfolioUpdateError);
+      return;
     }
+    
+    console.log('=== Portfolio update completed successfully ===');
   } catch (error) {
     console.error('Error updating portfolio after trade:', error);
   }
@@ -934,24 +1038,50 @@ async function getGeneralResponse(message: string) {
 }
 
 // Store conversation in Supabase
-async function storeConversation(userId, userMessage, assistantResponse) {
+async function storeConversation(userId: string, userMessage: string, assistantResponse: string) {
   try {
-    console.log('Storing conversation in Supabase');
-    
-    const { error } = await supabase
-      .from('trading_conversations')
-      .insert({
+    const timestamp = new Date().toISOString();
+    const newMessages = [
+      { role: 'user', content: userMessage, timestamp },
+      { role: 'assistant', content: assistantResponse, timestamp }
+    ];
+
+    // Get existing conversation history
+    const { data: existingData, error: fetchError } = await supabase
+      .from('conversation_history')
+      .select('messages')
+      .eq('user_id', userId)
+      .single();
+
+    if (fetchError && fetchError.code !== 'PGRST116') {
+      console.error('Error fetching conversation history:', fetchError);
+      return;
+    }
+
+    let messages = existingData?.messages || [];
+    messages = [...messages, ...newMessages];
+
+    // Keep only the last 100 messages
+    if (messages.length > 100) {
+      messages = messages.slice(-100);
+    }
+
+    // Upsert conversation history
+    const { error: upsertError } = await supabase
+      .from('conversation_history')
+      .upsert({
         user_id: userId,
-        user_message: userMessage,
-        assistant_response: assistantResponse,
-        timestamp: new Date().toISOString()
+        messages,
+        last_updated: timestamp
+      }, {
+        onConflict: 'user_id'
       });
-    
-    if (error) {
-      console.error('Error storing conversation:', error);
+
+    if (upsertError) {
+      console.error('Error storing conversation:', upsertError);
     }
   } catch (error) {
-    console.error('Error storing conversation:', error);
+    console.error('Error in storeConversation:', error);
   }
 }
 

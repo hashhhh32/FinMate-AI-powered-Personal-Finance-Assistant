@@ -152,7 +152,7 @@ const Index = () => {
               </Button>
             </div>
             <div className="lg:w-1/2 rounded-lg shadow-lg overflow-hidden border border-gray-200 dark:border-gray-800">
-              <img alt="FinMate Dashboard Preview" className="w-full h-auto" src="/lovable-uploads/61c3d6ca-a8bd-4ad4-bf3f-d32658febea1.png" />
+              <img alt="FinMate Dashboard Preview" className="w-full h-auto" src="/dashboard-preview.png" />
             </div>
           </div>
         </div>
