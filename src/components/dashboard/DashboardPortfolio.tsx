@@ -1,5 +1,4 @@
-
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -8,6 +7,8 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { usePortfolio } from "@/hooks/use-portfolio";
 import { PortfolioHolding } from "@/types/expense";
+import { useAuth } from "@/hooks/use-auth";
+import { supabase } from "@/lib/supabase";
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -23,20 +24,33 @@ import {
 } from "lucide-react";
 import { ResponsiveContainer, PieChart, Pie, Cell, Legend, Tooltip } from "recharts";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { useTrading } from "@/hooks/use-trading";
 
 const DashboardPortfolio = () => {
+  const { user } = useAuth();
+  const [userPortfolio, setUserPortfolio] = useState<any[]>([]);
+  const [isLoadingUserPortfolio, setIsLoadingUserPortfolio] = useState(true);
+  const [portfolioSummary, setPortfolioSummary] = useState({
+    totalValue: 0,
+    totalCost: 0,
+    totalProfit: 0,
+    profitPercentage: 0
+  });
+  const [assetAllocation, setAssetAllocation] = useState<any[]>([]);
+
   const { 
     holdings, 
     transactions, 
     isLoading, 
-    portfolioSummary, 
-    assetAllocation,
     addHolding,
     updateHolding,
     deleteHolding,
     addTransaction,
-    updateStockPrices
+    updateStockPrices,
+    fetchPortfolio
   } = usePortfolio();
+
+  const { portfolio: tradingPortfolio, isLoadingPortfolio } = useTrading();
 
   const [isAddingHolding, setIsAddingHolding] = useState(false);
   const [newHolding, setNewHolding] = useState({
@@ -57,6 +71,175 @@ const DashboardPortfolio = () => {
     price: 0,
     transaction_date: new Date().toISOString()
   });
+
+  // Function to update portfolio summary
+  const updatePortfolioSummary = (summary: typeof portfolioSummary) => {
+    setPortfolioSummary(summary);
+  };
+
+  // Function to update asset allocation
+  const updateAssetAllocation = (allocation: any[]) => {
+    setAssetAllocation(allocation);
+  };
+
+  // Function to fetch user portfolio
+  const fetchUserPortfolio = async () => {
+    if (!user?.id) return;
+    
+    try {
+      setIsLoadingUserPortfolio(true);
+      const { data, error } = await supabase
+        .rpc('get_user_portfolio_summary', { p_user_id: user.id });
+      
+      if (error) {
+        console.error('Error fetching user portfolio:', error);
+        // Initialize empty portfolio data
+        setUserPortfolio([]);
+        updatePortfolioSummary({
+          totalValue: 0,
+          totalCost: 0,
+          totalProfit: 0,
+          profitPercentage: 0
+        });
+        updateAssetAllocation([]);
+        return;
+      }
+      
+      setUserPortfolio(data || []);
+      
+      // Update portfolio summary
+      const totalValue = data.reduce((sum, pos) => sum + (pos.total_market_value || 0), 0);
+      const totalCost = data.reduce((sum, pos) => sum + (pos.total_cost_basis || 0), 0);
+      const totalProfit = data.reduce((sum, pos) => sum + (pos.unrealized_pl || 0), 0);
+      const profitPercentage = data.length > 0 
+        ? data.reduce((sum, pos) => sum + (pos.unrealized_plpc || 0), 0) / data.length
+        : 0;
+      
+      // Update asset allocation
+      const newAllocation = data.map(position => ({
+        name: position.symbol,
+        value: position.total_market_value || 0,
+        color: getRandomColor()
+      }));
+      
+      // Update the portfolio data
+      updatePortfolioSummary({
+        totalValue,
+        totalCost,
+        totalProfit,
+        profitPercentage
+      });
+      
+      updateAssetAllocation(newAllocation);
+    } catch (error) {
+      console.error('Error fetching user portfolio:', error);
+      toast.error('Failed to load portfolio data');
+    } finally {
+      setIsLoadingUserPortfolio(false);
+    }
+  };
+
+  // Fetch user's portfolio data
+  useEffect(() => {
+    fetchUserPortfolio();
+  }, [user?.id]);
+
+  // Sync trading portfolio data with dashboard portfolio
+  useEffect(() => {
+    if (tradingPortfolio && !isLoadingPortfolio) {
+      // Update holdings based on trading positions
+      tradingPortfolio.positions.forEach(position => {
+        const existingHolding = holdings.find(h => h.symbol === position.symbol);
+        if (existingHolding) {
+          updateHolding(existingHolding.id, {
+            shares: position.quantity,
+            last_updated: new Date().toISOString()
+          });
+        } else {
+          addHolding({
+            symbol: position.symbol,
+            company_name: position.symbol, // You might want to fetch company name
+            shares: position.quantity,
+            purchase_price: position.cost_basis / position.quantity,
+            purchase_date: new Date().toISOString()
+          });
+        }
+      });
+
+      // Update portfolio summary
+      const newSummary = {
+        totalValue: tradingPortfolio.equity,
+        totalCost: tradingPortfolio.positions.reduce((sum, pos) => sum + pos.cost_basis, 0),
+        totalProfit: tradingPortfolio.positions.reduce((sum, pos) => sum + pos.unrealized_pl, 0),
+        profitPercentage: tradingPortfolio.positions.reduce((sum, pos) => sum + pos.unrealized_plpc, 0) / tradingPortfolio.positions.length
+      };
+
+      // Update asset allocation
+      const newAllocation = tradingPortfolio.positions.map(position => ({
+        name: position.symbol,
+        value: position.market_value,
+        color: getRandomColor()
+      }));
+
+      // Refresh the portfolio data
+      fetchPortfolio();
+    }
+  }, [tradingPortfolio, isLoadingPortfolio]);
+
+  // Function to calculate average purchase price for a symbol
+  const calculateAveragePurchasePrice = (symbol: string) => {
+    const symbolTransactions = transactions.filter(t => t.symbol === symbol);
+    if (symbolTransactions.length === 0) return 0;
+
+    let totalShares = 0;
+    let totalCost = 0;
+
+    symbolTransactions.forEach(transaction => {
+      if (transaction.transaction_type === 'buy') {
+        totalShares += transaction.shares;
+        totalCost += transaction.shares * transaction.price;
+      } else if (transaction.transaction_type === 'sell') {
+        totalShares -= transaction.shares;
+        totalCost -= transaction.shares * transaction.price;
+      }
+    });
+
+    return totalShares > 0 ? totalCost / totalShares : 0;
+  };
+
+  // Function to get current price from trading portfolio
+  const getCurrentPrice = (symbol: string) => {
+    if (tradingPortfolio) {
+      const position = tradingPortfolio.positions.find(p => p.symbol === symbol);
+      if (position) {
+        return position.market_value / position.quantity;
+      }
+    }
+    return null;
+  };
+
+  // Update holdings with real-time prices
+  useEffect(() => {
+    if (tradingPortfolio && !isLoadingPortfolio) {
+      holdings.forEach(holding => {
+        const currentPrice = getCurrentPrice(holding.symbol);
+        if (currentPrice) {
+          updateHolding(holding.id, {
+            current_price: currentPrice,
+            last_updated: new Date().toISOString()
+          });
+        }
+      });
+    }
+  }, [tradingPortfolio, isLoadingPortfolio]);
+
+  const getRandomColor = () => {
+    const colors = [
+      "#3b82f6", "#10b981", "#f59e0b", "#8b5cf6", "#ef4444", 
+      "#06b6d4", "#84cc16", "#ec4899", "#f97316", "#0ea5e9"
+    ];
+    return colors[Math.floor(Math.random() * colors.length)];
+  };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -159,6 +342,95 @@ const DashboardPortfolio = () => {
     setIsAddingTransaction(true);
   };
 
+  // Function to calculate profit/loss for a position
+  const calculatePositionProfitLoss = (holding: PortfolioHolding) => {
+    const position = tradingPortfolio?.positions.find(p => p.symbol === holding.symbol);
+    if (!position) return { profit: 0, profitPercentage: 0 };
+
+    // Use the position's unrealized P/L directly from the trading portfolio
+    return {
+      profit: position.unrealized_pl,
+      profitPercentage: position.unrealized_plpc
+    };
+  };
+
+  // Function to calculate total portfolio profit/loss
+  const calculateTotalProfitLoss = () => {
+    if (!tradingPortfolio) return { totalProfit: 0, totalProfitPercentage: 0 };
+
+    const totalProfit = tradingPortfolio.positions.reduce((sum, pos) => sum + pos.unrealized_pl, 0);
+    const totalProfitPercentage = tradingPortfolio.positions.reduce((sum, pos) => sum + pos.unrealized_plpc, 0) / 
+      (tradingPortfolio.positions.length || 1);
+
+    return {
+      totalProfit,
+      totalProfitPercentage
+    };
+  };
+
+  const handleTrade = async (symbol: string, quantity: number, type: 'buy' | 'sell') => {
+    if (!user?.id) {
+      toast.error('Please log in to execute trades');
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/trading-assistant', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message: `${type} ${quantity} shares of ${symbol}`,
+          userId: user.id,
+          messageType: 'trade'
+        })
+      });
+
+      const data = await response.json();
+      
+      if (!data.success) {
+        if (data.requiresConfirmation) {
+          // Show wash sale confirmation dialog
+          const confirmed = window.confirm(data.message);
+          if (confirmed) {
+            // Proceed with trade
+            const confirmResponse = await fetch('/api/trading-assistant', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                message: `${type} ${quantity} shares of ${symbol}`,
+                userId: user.id,
+                messageType: 'trade',
+                confirmedWashSale: true
+              })
+            });
+            
+            const confirmData = await confirmResponse.json();
+            if (confirmData.success) {
+              toast.success(confirmData.message);
+              // Refresh portfolio data
+              fetchUserPortfolio();
+            } else {
+              toast.error(confirmData.message);
+            }
+          }
+        } else {
+          toast.error(data.message);
+        }
+      } else {
+        toast.success(data.message);
+        // Refresh portfolio data
+        fetchUserPortfolio();
+      }
+    } catch (error) {
+      console.error('Error executing trade:', error);
+      toast.error('Failed to execute trade');
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -177,9 +449,12 @@ const DashboardPortfolio = () => {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={updateStockPrices}>
+          <Button variant="outline" size="sm" onClick={() => {
+            updateStockPrices();
+            fetchPortfolio();
+          }}>
             <RefreshCcw className="h-4 w-4 mr-2" />
-            Refresh Prices
+            Refresh Data
           </Button>
           <Button size="sm" onClick={() => setIsAddingHolding(true)}>
             <Plus className="h-4 w-4 mr-2" />
@@ -337,11 +612,9 @@ const DashboardPortfolio = () => {
                 </TableHeader>
                 <TableBody>
                   {holdings.map((holding) => {
-                    const currentPrice = holding.current_price || holding.purchase_price;
-                    const totalValue = holding.shares * currentPrice;
-                    const totalCost = holding.shares * holding.purchase_price;
-                    const profit = totalValue - totalCost;
-                    const profitPercentage = (profit / totalCost) * 100;
+                    const position = tradingPortfolio?.positions.find(p => p.symbol === holding.symbol);
+                    const currentPrice = position ? position.market_value / position.quantity : 0;
+                    const { profit, profitPercentage } = calculatePositionProfitLoss(holding);
                     
                     return (
                       <TableRow key={holding.id}>
@@ -381,12 +654,21 @@ const DashboardPortfolio = () => {
                               <div className="text-xs text-muted-foreground">{holding.company_name}</div>
                             </TableCell>
                             <TableCell>{holding.shares}</TableCell>
-                            <TableCell>${holding.purchase_price.toFixed(2)}</TableCell>
-                            <TableCell>${currentPrice.toFixed(2)}</TableCell>
-                            <TableCell>${totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
+                            <TableCell>${(position?.cost_basis / position?.quantity || 0).toFixed(2)}</TableCell>
+                            <TableCell>
+                              <div className="flex items-center gap-2">
+                                ${currentPrice.toFixed(2)}
+                                {profit !== 0 && (
+                                  <Badge variant={profit >= 0 ? "default" : "destructive"} className="text-xs">
+                                    {profit >= 0 ? "↑" : "↓"}
+                                  </Badge>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell>${position?.market_value.toFixed(2) || 0}</TableCell>
                             <TableCell className={profit >= 0 ? "text-green-500" : "text-red-500"}>
                               <div>
-                                {profit >= 0 ? "+" : ""}${profit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                {profit >= 0 ? "+" : ""}${profit.toFixed(2)}
                               </div>
                               <div className="text-xs">
                                 {profitPercentage >= 0 ? "+" : ""}

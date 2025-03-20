@@ -14,12 +14,11 @@ import { useAuth } from "@/context/AuthContext";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { cn } from "@/lib/utils";
 
 interface TradingAssistantProps {
   initialPrompt?: string;
@@ -114,49 +113,76 @@ const TradingAssistant: React.FC<TradingAssistantProps> = ({ initialPrompt }) =>
   }
 
   return (
-    <div className="grid gap-4">
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-          <CardTitle className="text-lg">Trading Assistant</CardTitle>
-          <Dialog>
-            <DialogTrigger asChild>
-              <Button variant="outline" size="icon">
-                <History className="h-4 w-4" />
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-2xl">
-              <DialogHeader>
-                <DialogTitle>Conversation History</DialogTitle>
-              </DialogHeader>
-              <ScrollArea className="h-[500px] pr-4">
-                <div className="space-y-4">
-                  {conversations.map((msg, i) => (
-                    <div
-                      key={i}
-                      className={cn(
-                        "flex flex-col space-y-2 text-sm",
-                        msg.role === "user" ? "items-end" : "items-start"
-                      )}
-                    >
+    <div className="flex flex-col space-y-4 h-full">
+      <Card className="flex flex-col flex-1">
+        <CardHeader className="flex flex-row items-center justify-between">
+          <div>
+            <CardTitle>Trading Assistant</CardTitle>
+            <CardDescription>
+              Ask questions, get market data, or execute trades with text or voice commands
+            </CardDescription>
+          </div>
+          <div className="flex gap-2">
+            <Dialog open={showHistory} onOpenChange={setShowHistory}>
+              <DialogTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <History className="h-4 w-4 mr-2" />
+                  History
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+                <DialogHeader>
+                  <DialogTitle>Conversation History</DialogTitle>
+                  <DialogDescription>
+                    View your past interactions with the trading assistant
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4 mt-4">
+                  {conversations.length > 0 ? (
+                    conversations.map((message, index) => (
                       <div
-                        className={cn(
-                          "rounded-lg px-3 py-2 max-w-[85%]",
-                          msg.role === "user"
-                            ? "bg-primary text-primary-foreground"
-                            : "bg-muted"
-                        )}
+                        key={index}
+                        className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
                       >
-                        {msg.content}
+                        <div
+                          className={`flex gap-3 max-w-[80%] ${
+                            message.role === "user"
+                              ? "flex-row-reverse"
+                              : "flex-row"
+                          }`}
+                        >
+                          <Avatar className={message.role === "user" ? "bg-primary" : "bg-muted"}>
+                            <AvatarFallback>
+                              {message.role === "user" ? <User className="h-5 w-5" /> : <Bot className="h-5 w-5" />}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div
+                            className={`rounded-lg px-4 py-2 ${
+                              message.role === "user"
+                                ? "bg-primary text-primary-foreground"
+                                : "bg-muted"
+                            }`}
+                          >
+                            <p className="text-sm whitespace-pre-line">{message.content}</p>
+                            <p className="text-xs opacity-70 mt-1">
+                              {format(new Date(message.timestamp), 'MMM d, h:mm a')}
+                            </p>
+                          </div>
+                        </div>
                       </div>
-                      <span className="text-xs text-muted-foreground">
-                        {new Date(msg.timestamp).toLocaleString()}
-                      </span>
+                    ))
+                  ) : (
+                    <div className="text-center py-8">
+                      <p className="text-muted-foreground">No conversation history yet</p>
                     </div>
-                  ))}
+                  )}
                 </div>
-              </ScrollArea>
-            </DialogContent>
-          </Dialog>
+              </DialogContent>
+            </Dialog>
+            <Button variant="outline" size="sm" onClick={handleRefresh}>
+              Refresh Data
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="flex-1 overflow-y-auto">
           <div className="space-y-4">

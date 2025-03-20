@@ -537,9 +537,9 @@ async function getStockPrice(symbol: string) {
 }
 
 // Execute a stock trade via Alpaca API
-async function executeTrade(userId: string, orderType: 'buy' | 'sell', symbol: string, quantity: number) {
+async function executeTrade(userId: string, orderType: 'buy' | 'sell', symbol: string, quantity: number, confirmedWashSale: boolean = false) {
   console.log('=== Starting trade execution ===');
-  console.log('Trade parameters:', { userId, orderType, symbol, quantity });
+  console.log('Trade parameters:', { userId, orderType, symbol, quantity, confirmedWashSale });
   
   try {
     // Validate API credentials
@@ -586,45 +586,69 @@ async function executeTrade(userId: string, orderType: 'buy' | 'sell', symbol: s
     const currentPrice = priceInfo.data.price;
     console.log('Current price:', currentPrice);
     
-    // Check account status and buying power (for buy orders)
-    if (orderType === 'buy') {
-      console.log('Checking account status...');
-      try {
-        const accountResponse = await fetch(`${ALPACA_BASE_URL}/v2/account`, {
-          headers: {
-            'APCA-API-KEY-ID': ALPACA_API_KEY,
-            'APCA-API-SECRET-KEY': ALPACA_API_SECRET
-          }
-        });
-        
-        if (!accountResponse.ok) {
-          const accountError = await accountResponse.text();
-          console.error('Failed to fetch account info:', accountError);
-          return {
-            success: false,
-            message: "I couldn't verify your account status. Please try again later.",
-            debug: { error: 'ACCOUNT_FETCH_FAILED', details: accountError }
-          };
-        }
-        
-        const accountData = await accountResponse.json();
-        const buyingPower = parseFloat(accountData.buying_power);
-        const orderCost = currentPrice * quantity;
-        
-        if (orderCost > buyingPower) {
-          console.error('Insufficient buying power:', { buyingPower, orderCost });
-          return {
-            success: false,
-            message: `You don't have enough buying power to purchase ${quantity} shares of ${symbol} at $${currentPrice.toFixed(2)} (Total cost: $${orderCost.toFixed(2)}, Available: $${buyingPower.toFixed(2)})`,
-            debug: { error: 'INSUFFICIENT_BUYING_POWER', buyingPower, orderCost }
-          };
-        }
-      } catch (error) {
-        console.error('Error checking account status:', error);
+    // Check for wash sale before creating order
+    if (orderType === 'sell' && !confirmedWashSale) {
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      
+      const { data: recentTrades, error: tradesError } = await supabase
+        .from('trading_history')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('symbol', symbol)
+        .gte('created_at', thirtyDaysAgo.toISOString())
+        .order('created_at', { ascending: false });
+      
+      if (tradesError) {
+        console.error('Error fetching recent trades:', tradesError);
         return {
           success: false,
-          message: "I couldn't verify your account status. Please try again later.",
-          debug: { error: 'ACCOUNT_CHECK_FAILED', details: error.message }
+          message: "I couldn't check for wash sales. Please try again later.",
+          debug: { error: 'TRADES_FETCH_FAILED', details: tradesError }
+        };
+      }
+      
+      // Check for wash sale
+      const hasRecentBuy = recentTrades?.some(trade => 
+        trade.order_type === 'buy' && 
+        new Date(trade.created_at) > thirtyDaysAgo
+      );
+      
+      if (hasRecentBuy) {
+        console.log('Wash sale detected');
+        const recentBuy = recentTrades.find(trade => trade.order_type === 'buy');
+        const washSaleLoss = (currentPrice - recentBuy.price) * Math.min(quantity, recentBuy.quantity);
+        
+        // Calculate tax implications using Gemini
+        const taxAnalysis = await analyzeWashSaleWithGemini({
+          symbol,
+          quantity,
+          currentPrice,
+          buyPrice: recentBuy.price,
+          washSaleLoss,
+          buyDate: recentBuy.created_at
+        });
+        
+        // Store the analysis in the conversation history
+        await storeConversationHistory(userId, {
+          role: 'assistant',
+          content: taxAnalysis.message,
+          timestamp: new Date().toISOString()
+        });
+        
+        // Return early to wait for user confirmation
+        return {
+          success: false,
+          message: taxAnalysis.message,
+          requiresConfirmation: true,
+          washSaleDetails: {
+            symbol,
+            quantity,
+            currentPrice,
+            buyPrice: recentBuy.price,
+            washSaleLoss,
+            buyDate: recentBuy.created_at
+          }
         };
       }
     }
@@ -687,21 +711,22 @@ async function executeTrade(userId: string, orderType: 'buy' | 'sell', symbol: s
     console.log('Updating portfolio...');
     try {
       await updatePortfolioAfterTrade(userId, symbol, quantity, currentPrice, orderType);
-    } catch (error) {
-      console.error('Failed to update portfolio:', error);
-      // Don't fail the request if portfolio update fails
-    }
-    
-    console.log('=== Trade execution complete ===');
       return {
         success: true,
-      message: `Successfully placed order to ${orderType} ${quantity} shares of ${symbol} at $${currentPrice.toFixed(2)}. Order ID: ${orderData.id}, Status: ${orderData.status}`,
-      data: {
-        order: orderData,
-        price: currentPrice
-      }
-    };
-    
+        message: `Successfully placed order to ${orderType} ${quantity} shares of ${symbol} at $${currentPrice.toFixed(2)}. Order ID: ${orderData.id}, Status: ${orderData.status}`,
+        data: {
+          order: orderData,
+          price: currentPrice
+        }
+      };
+    } catch (error) {
+      console.error('Failed to update portfolio:', error);
+      return {
+        success: false,
+        message: `Order placed but failed to update portfolio. Please check your portfolio status.`,
+        debug: { error: error.message }
+      };
+    }
   } catch (error) {
     console.error('Error executing trade:', error);
     return {
@@ -780,6 +805,7 @@ async function updatePortfolioAfterTrade(userId: string, symbol: string, quantit
     
     console.log('Current position data:', currentPosition);
     
+    // If no wash sale or user confirmed, proceed with the trade
     // Calculate new position values
     const newQuantity = orderType === 'buy' 
       ? currentPosition.quantity + quantity 
@@ -881,6 +907,78 @@ async function updatePortfolioAfterTrade(userId: string, symbol: string, quantit
     console.log('=== Portfolio update completed successfully ===');
   } catch (error) {
     console.error('Error updating portfolio after trade:', error);
+  }
+}
+
+// New function to analyze wash sale with Gemini
+async function analyzeWashSaleWithGemini(washSaleDetails: {
+  symbol: string;
+  quantity: number;
+  currentPrice: number;
+  buyPrice: number;
+  washSaleLoss: number;
+  buyDate: string;
+}) {
+  try {
+    if (!GEMINI_API_KEY) {
+      throw new Error('GEMINI_API_KEY_MISSING');
+    }
+    
+    const url = `https://generativelanguage.googleapis.com/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+    
+    const prompt = `
+      You are a financial advisor helping a user understand the implications of a wash sale.
+      
+      Wash Sale Details:
+      - Symbol: ${washSaleDetails.symbol}
+      - Quantity: ${washSaleDetails.quantity} shares
+      - Current Price: $${washSaleDetails.currentPrice}
+      - Buy Price: $${washSaleDetails.buyPrice}
+      - Buy Date: ${new Date(washSaleDetails.buyDate).toLocaleDateString()}
+      - Wash Sale Loss: $${washSaleDetails.washSaleLoss}
+      
+      Explain the tax implications of this wash sale and provide a clear recommendation.
+      Include:
+      1. The immediate financial impact
+      2. Tax implications
+      3. Alternative strategies
+      
+      End with a clear question asking if the user wants to proceed with the trade despite the wash sale.
+      
+      Keep the response concise and professional.
+    `;
+    
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        contents: [{
+          parts: [{
+            text: prompt
+          }]
+        }]
+      })
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Gemini API error: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    const analysis = data.candidates[0].content.parts[0].text;
+    
+    return {
+      success: true,
+      message: analysis
+    };
+  } catch (error) {
+    console.error('Error analyzing wash sale:', error);
+    return {
+      success: false,
+      message: "I encountered an error while analyzing the wash sale. Please try again later."
+    };
   }
 }
 
