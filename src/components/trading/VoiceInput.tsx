@@ -20,34 +20,59 @@ const VoiceInput: React.FC<VoiceInputProps> = ({ onResult, isProcessing = false 
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [retryCount, setRetryCount] = useState(0);
-  const [isRetrying, setIsRetrying] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
   const recognitionRef = useRef<any>(null);
-  const maxRetries = 3;
-  const retryDelay = 2000; // 2 seconds
+  const isInitializedRef = useRef(false);
 
-  // Check network connectivity
+  // Check network connectivity with timeout
   const checkNetworkConnection = async (): Promise<boolean> => {
-    if (!navigator.onLine) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+
+      const response = await fetch('https://www.google.com/favicon.ico', {
+        mode: 'no-cors',
+        cache: 'no-cache',
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+      setIsOnline(true);
+      return true;
+    } catch (error) {
+      console.error('Network connectivity test failed:', error);
       setIsOnline(false);
       return false;
     }
-    setIsOnline(true);
-    return true;
+  };
+
+  const cleanupRecognition = () => {
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+        recognitionRef.current.abort();
+        recognitionRef.current = null;
+        isInitializedRef.current = false;
+      } catch (err) {
+        console.error('Error cleaning up speech recognition:', err);
+      }
+    }
+    setIsListening(false);
   };
 
   useEffect(() => {
-    // Add network status event listeners
-    const handleOnline = () => {
-      setIsOnline(true);
-      toast.success("Network connection restored");
+    const handleOnline = async () => {
+      const hasConnection = await checkNetworkConnection();
+      if (hasConnection) {
+        setIsOnline(true);
+        toast.success("Network connection restored");
+      }
     };
 
     const handleOffline = () => {
       setIsOnline(false);
       toast.error("Network connection lost");
-      stopListening();
+      cleanupRecognition();
     };
 
     window.addEventListener('online', handleOnline);
@@ -59,11 +84,13 @@ const VoiceInput: React.FC<VoiceInputProps> = ({ onResult, isProcessing = false 
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
-      stopListening();
+      cleanupRecognition();
     };
   }, []);
 
   const initializeSpeechRecognition = () => {
+    if (isInitializedRef.current) return true;
+
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     
     if (!SpeechRecognition) {
@@ -73,82 +100,76 @@ const VoiceInput: React.FC<VoiceInputProps> = ({ onResult, isProcessing = false 
     }
 
     try {
-      if (!recognitionRef.current) {
-        recognitionRef.current = new SpeechRecognition();
-        recognitionRef.current.continuous = true; // Keep listening until manually stopped
-        recognitionRef.current.interimResults = true;
-        recognitionRef.current.lang = 'en-US';
+      recognitionRef.current = new SpeechRecognition();
+      recognitionRef.current.continuous = false; // Set to false to better handle network errors
+      recognitionRef.current.interimResults = true;
+      recognitionRef.current.lang = 'en-US';
+      
+      recognitionRef.current.onstart = () => {
+        console.log('Speech recognition started');
+        setIsListening(true);
+        setError(null);
+        toast.info("Listening... Speak your trading command");
+      };
+      
+      recognitionRef.current.onresult = (event: any) => {
+        let interimTranscript = '';
+        let finalTranscript = '';
         
-        recognitionRef.current.onstart = () => {
-          console.log('Speech recognition started');
-          setIsListening(true);
-          setError(null);
-          setIsRetrying(false);
-          toast.info("Listening... Speak your trading command");
-        };
-        
-        recognitionRef.current.onresult = (event: any) => {
-          let interimTranscript = '';
-          let finalTranscript = '';
-          
-          for (let i = event.resultIndex; i < event.results.length; i++) {
-            const transcript = event.results[i][0].transcript;
-            if (event.results[i].isFinal) {
-              finalTranscript += transcript;
-            } else {
-              interimTranscript += transcript;
-            }
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const transcript = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            finalTranscript += transcript;
+          } else {
+            interimTranscript += transcript;
           }
-          
-          const currentTranscript = finalTranscript || interimTranscript;
-          setTranscript(currentTranscript);
-          
-          if (finalTranscript) {
-            onResult(finalTranscript);
-            setTranscript("");
-          }
-        };
+        }
         
-        recognitionRef.current.onerror = async (event: any) => {
-          console.error('Speech recognition error:', event.error, event);
-          
-          if (event.error === 'network') {
-            const hasConnection = await checkNetworkConnection();
-            if (!hasConnection) {
-              stopListening();
-              toast.error("No internet connection. Please check your network and try again.");
-              return;
-            }
-          } else if (event.error === 'not-allowed') {
-            stopListening();
-            toast.error("Microphone access denied. Please allow microphone access to use voice commands.");
+        const currentTranscript = finalTranscript || interimTranscript;
+        setTranscript(currentTranscript);
+        
+        if (finalTranscript) {
+          onResult(finalTranscript);
+          setTranscript("");
+          stopListening(); // Stop after getting final result
+        }
+      };
+      
+      recognitionRef.current.onerror = async (event: any) => {
+        console.error('Speech recognition error:', event.error, event);
+        
+        if (event.error === 'network') {
+          const hasConnection = await checkNetworkConnection();
+          if (!hasConnection) {
+            cleanupRecognition();
+            toast.error("No internet connection. Please check your network and try again.");
             return;
           }
-          
-          // Don't set error for no-speech as it's normal when user stops talking
-          if (event.error !== 'no-speech') {
-            setError(event.error);
-          }
-        };
-        
-        recognitionRef.current.onend = () => {
-          console.log('Speech recognition ended');
-          // Only set isListening to false if we're not supposed to be listening
-          // This prevents the mic from turning off when there's just a pause in speech
-          if (!isListening) {
-            setIsListening(false);
-          } else {
-            // If we're supposed to be listening but recognition ended, restart it
-            try {
-              recognitionRef.current?.start();
-            } catch (err) {
-              console.error('Error restarting speech recognition:', err);
-              setIsListening(false);
+          // If we have connection but got network error, reinitialize
+          cleanupRecognition();
+          setTimeout(() => {
+            if (isOnline) {
+              startListening();
             }
-          }
-        };
-      }
+          }, 1000);
+        } else if (event.error === 'not-allowed') {
+          cleanupRecognition();
+          toast.error("Microphone access denied. Please allow microphone access to use voice commands.");
+        } else if (event.error !== 'no-speech') {
+          // Don't show error for no-speech as it's normal
+          setError(event.error);
+          toast.error("An error occurred with voice recognition. Please try again.");
+        }
+      };
+      
+      recognitionRef.current.onend = () => {
+        console.log('Speech recognition ended');
+        if (!isListening) {
+          cleanupRecognition();
+        }
+      };
 
+      isInitializedRef.current = true;
       return true;
     } catch (err) {
       console.error('Error initializing speech recognition:', err);
@@ -158,13 +179,6 @@ const VoiceInput: React.FC<VoiceInputProps> = ({ onResult, isProcessing = false 
     }
   };
 
-  useEffect(() => {
-    initializeSpeechRecognition();
-    return () => {
-      stopListening();
-    };
-  }, []);
-
   const startListening = async () => {
     if (!isOnline) {
       toast.error("No internet connection. Please check your network and try again.");
@@ -172,10 +186,8 @@ const VoiceInput: React.FC<VoiceInputProps> = ({ onResult, isProcessing = false 
     }
 
     try {
-      if (!recognitionRef.current) {
-        const initialized = initializeSpeechRecognition();
-        if (!initialized) return;
-      }
+      const initialized = initializeSpeechRecognition();
+      if (!initialized) return;
 
       setIsListening(true);
       setTranscript("");
@@ -183,17 +195,20 @@ const VoiceInput: React.FC<VoiceInputProps> = ({ onResult, isProcessing = false 
       await recognitionRef.current?.start();
     } catch (err) {
       console.error('Error starting speech recognition:', err);
-      setIsListening(false);
+      cleanupRecognition();
       toast.error("Failed to start voice recognition. Please try again.");
     }
   };
 
   const stopListening = () => {
     try {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
       setIsListening(false);
-      recognitionRef.current?.stop();
     } catch (err) {
       console.error('Error stopping speech recognition:', err);
+      cleanupRecognition();
     }
   };
   
@@ -208,7 +223,7 @@ const VoiceInput: React.FC<VoiceInputProps> = ({ onResult, isProcessing = false 
       }
     } catch (err) {
       console.error('Error toggling speech recognition:', err);
-      setIsListening(false);
+      cleanupRecognition();
       toast.error("Failed to toggle voice recognition. Please try again.");
     }
   };
