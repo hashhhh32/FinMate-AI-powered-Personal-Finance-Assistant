@@ -1,9 +1,9 @@
-
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Menu, X } from "lucide-react";
+import Logo from "@/components/ui/logo";
 
 const LandingNavbar = () => {
   const { user } = useAuth();
@@ -18,7 +18,7 @@ const LandingNavbar = () => {
       <div className="container flex h-16 items-center justify-between">
         <div className="flex items-center gap-2">
           <Link to="/" className="flex items-center gap-2">
-            <span className="text-xl font-bold gradient-text">FinMate</span>
+            <Logo />
           </Link>
         </div>
         

@@ -1,4 +1,3 @@
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -14,16 +13,16 @@
     --popover: 0 0% 100%;
     --popover-foreground: 222.2 84% 4.9%;
 
-    --primary: 210 100% 40%;
+    --primary: 187 100% 42%;
     --primary-foreground: 210 40% 98%;
 
-    --secondary: 210 40% 96.1%;
+    --secondary: 187 40% 96.1%;
     --secondary-foreground: 222.2 47.4% 11.2%;
 
     --muted: 210 40% 96.1%;
     --muted-foreground: 215.4 16.3% 46.9%;
 
-    --accent: 160 84% 39%;
+    --accent: 187 84% 39%;
     --accent-foreground: 210 40% 98%;
 
     --destructive: 0 84.2% 60.2%;
@@ -35,14 +34,25 @@
 
     --radius: 0.5rem;
 
-    --sidebar-background: 210 100% 16%; 
+    --finmate-50: 187 100% 96%;
+    --finmate-100: 187 100% 90%;
+    --finmate-200: 187 100% 80%;
+    --finmate-300: 187 100% 70%;
+    --finmate-400: 187 100% 60%;
+    --finmate-500: 187 100% 42%;
+    --finmate-600: 187 100% 32%;
+    --finmate-700: 187 100% 25%;
+    --finmate-800: 187 100% 20%;
+    --finmate-900: 187 100% 15%;
+
+    --sidebar-background: 187 100% 16%; 
     --sidebar-foreground: 210 40% 98%;
-    --sidebar-primary: 160 84% 39%;
+    --sidebar-primary: 187 84% 39%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 210 100% 20%;
+    --sidebar-accent: 187 100% 20%;
     --sidebar-accent-foreground: 210 40% 98%;
-    --sidebar-border: 210 100% 24%;
-    --sidebar-ring: 210 100% 30%;
+    --sidebar-border: 187 100% 24%;
+    --sidebar-ring: 187 100% 30%;
   }
 
   .dark {
@@ -55,7 +65,7 @@
     --popover: 222.2 84% 4.9%;
     --popover-foreground: 210 40% 98%;
 
-    --primary: 210 100% 50%; 
+    --primary: 187 100% 50%; 
     --primary-foreground: 210 40% 98%;
 
     --secondary: 217.2 32.6% 17.5%;
@@ -64,7 +74,7 @@
     --muted: 217.2 32.6% 17.5%;
     --muted-foreground: 215 20.2% 65.1%;
 
-    --accent: 160 84% 39%;
+    --accent: 187 84% 39%;
     --accent-foreground: 210 40% 98%;
 
     --destructive: 0 62.8% 30.6%;
@@ -89,6 +99,6 @@
 
 @layer utilities {
   .gradient-text {
-    @apply bg-gradient-to-r from-finmate-600 to-accent-500 bg-clip-text text-transparent;
+    @apply bg-gradient-to-r from-finmate-500 to-finmate-600 bg-clip-text text-transparent;
   }
 }
