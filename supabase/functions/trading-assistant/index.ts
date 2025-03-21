@@ -3,8 +3,6 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.7';
-import Alpaca from 'npm:@alpacahq/alpaca-trade-api';
-import AlpacaClient from 'npm:@alpacahq/alpaca-trade-api/alpaca-client';
 
 // Type declarations for Deno environment
 declare const Deno: {
@@ -29,9 +27,8 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !GEMINI_API_KEY || !ALPACA_AP
 // Define CORS headers
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Max-Age': '86400',
 };
 
 // Define response headers that include CORS
@@ -43,8 +40,16 @@ const responseHeaders = {
 // Initialize Supabase client
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-// Alpaca API credentials
-const ALPACA_BASE_URL = 'https://paper-api.alpaca.markets'; // Paper trading URL
+// Alpaca API base URLs
+const ALPACA_BASE_URL = 'https://paper-api.alpaca.markets';
+const ALPACA_DATA_URL = 'https://data.alpaca.markets';
+
+// Alpaca API headers
+const alpacaHeaders = {
+  'APCA-API-KEY-ID': ALPACA_API_KEY,
+  'APCA-API-SECRET-KEY': ALPACA_API_SECRET,
+  'Content-Type': 'application/json'
+};
 
 // Alpha Vantage API key (reusing existing key)
 const ALPHA_VANTAGE_API_KEY = 'ERZP1A2SEHQWGFE1';
@@ -60,18 +65,18 @@ interface ConversationHistory {
   lastUpdated: string;
 }
 
-// Initialize Alpaca client outside request handler for reuse
-const alpaca = new Alpaca({
-  keyId: ALPACA_API_KEY,
-  secretKey: ALPACA_API_SECRET,
-  paper: true,
-  baseUrl: 'https://paper-api.alpaca.markets'
-});
-
 // Add this function to validate Alpaca API connectivity
 async function validateAlpacaConnection() {
   try {
-    const account = await alpaca.getAccount();
+    const response = await fetch(`${ALPACA_BASE_URL}/v2/account`, {
+      headers: alpacaHeaders
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    const account = await response.json();
     console.log('Alpaca API connection validated:', {
       id: account.id,
       status: account.status,
@@ -187,6 +192,21 @@ serve(async (req) => {
   }
 
   try {
+    const { message, userId, messageType = 'text' } = await req.json();
+
+    if (!message || !userId) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          message: 'Missing required fields: message and userId are required',
+        }),
+        {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          status: 400,
+        }
+      );
+    }
+
     // Extract the JWT token from the request
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
@@ -202,22 +222,6 @@ serve(async (req) => {
     console.log('=== Starting request processing ===');
     console.log('Request method:', req.method);
     console.log('Request headers:', Object.fromEntries(req.headers.entries()));
-    
-    // Get request body
-    let requestBody;
-    try {
-      requestBody = await req.json();
-    } catch (error) {
-      return new Response(
-        JSON.stringify({ error: 'Invalid JSON body' }),
-        { 
-          status: 400,
-          headers: responseHeaders
-        }
-      );
-    }
-
-    const { message, userId, messageType } = requestBody;
     
     // Validate environment variables with detailed logging
     console.log('=== Validating environment variables ===');
@@ -389,7 +393,7 @@ serve(async (req) => {
     console.log('=== Request processing complete ===');
     return new Response(
       JSON.stringify(response),
-      { headers: responseHeaders }
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
     
   } catch (error) {
@@ -404,7 +408,7 @@ serve(async (req) => {
           stack: error.stack
         }
       }),
-      { headers: responseHeaders, status: 500 }
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
     );
   }
 });
@@ -737,22 +741,42 @@ async function executeTrade(userId: string, symbol: string, quantity: number, ac
     }
 
     // Check if market is open
-    const clock = await alpaca.getClock();
-    if (!clock.is_open) {
+    const marketStatus = await getMarketStatus();
+    if (!marketStatus.is_open) {
       throw new Error('Market is currently closed');
     }
 
-    // Get latest price
-    const quote = await alpaca.getLatestQuote(symbol);
-    if (!quote) {
+    // Get latest quote
+    const quoteResponse = await fetch(
+      `${ALPACA_DATA_URL}/v2/stocks/${symbol}/quotes/latest`,
+      { headers: alpacaHeaders }
+    );
+    
+    if (!quoteResponse.ok) {
       throw new Error(`Could not get current price for ${symbol}`);
     }
-    const currentPrice = quote.AskPrice || quote.BidPrice;
+    
+    const quote = await quoteResponse.json();
+    const currentPrice = quote.quote?.ap || quote.quote?.bp;
+
+    if (!currentPrice) {
+      throw new Error(`Could not determine current price for ${symbol}`);
+    }
 
     // Check buying power for buys
     if (action === 'BUY_STOCK') {
-      const account = await alpaca.getAccount();
+      const accountResponse = await fetch(
+        `${ALPACA_BASE_URL}/v2/account`,
+        { headers: alpacaHeaders }
+      );
+      
+      if (!accountResponse.ok) {
+        throw new Error('Could not verify buying power');
+      }
+      
+      const account = await accountResponse.json();
       const requiredFunds = quantity * currentPrice;
+      
       if (parseFloat(account.buying_power) < requiredFunds) {
         throw new Error(`Insufficient buying power. Required: $${requiredFunds}, Available: $${account.buying_power}`);
       }
@@ -760,20 +784,40 @@ async function executeTrade(userId: string, symbol: string, quantity: number, ac
 
     // Check existing position for sells
     if (action === 'SELL_STOCK') {
-      const position = await alpaca.getPosition(symbol).catch(() => null);
+      const positionResponse = await fetch(
+        `${ALPACA_BASE_URL}/v2/positions/${symbol}`,
+        { headers: alpacaHeaders }
+      );
+      
+      if (!positionResponse.ok && positionResponse.status !== 404) {
+        throw new Error('Could not verify position');
+      }
+      
+      const position = positionResponse.status === 404 ? null : await positionResponse.json();
+      
       if (!position || parseInt(position.qty) < quantity) {
         throw new Error(`Insufficient shares to sell. Requested: ${quantity}, Available: ${position ? position.qty : 0}`);
       }
     }
 
     // Execute trade
-    const order = await alpaca.createOrder({
-      symbol: symbol,
-      qty: quantity,
-      side: action === 'BUY_STOCK' ? 'buy' : 'sell',
-      type: 'market',
-      time_in_force: 'day'
+    const orderResponse = await fetch(`${ALPACA_BASE_URL}/v2/orders`, {
+      method: 'POST',
+      headers: alpacaHeaders,
+      body: JSON.stringify({
+        symbol: symbol,
+        qty: quantity,
+        side: action === 'BUY_STOCK' ? 'buy' : 'sell',
+        type: 'market',
+        time_in_force: 'day'
+      })
     });
+
+    if (!orderResponse.ok) {
+      throw new Error(`Order placement failed: ${orderResponse.statusText}`);
+    }
+
+    const order = await orderResponse.json();
 
     // Update trading position
     await updateTradingPosition(
@@ -783,9 +827,6 @@ async function executeTrade(userId: string, symbol: string, quantity: number, ac
       currentPrice,
       action === 'BUY_STOCK'
     );
-
-    // Set up real-time price updates for the position
-    await setupRealtimePriceUpdates(userId, symbol);
 
     // Store the trade in the database
     await storeTradeInDatabase(userId, {
@@ -1104,18 +1145,22 @@ async function storePortfolioInDatabase(userId: string, portfolioData: any) {
 // Helper function to get market status and trading day info
 async function getMarketStatus() {
   try {
-    const [clock, calendar] = await Promise.all([
-      alpaca.getClock(),
-      alpaca.getCalendar({
-        start: new Date().toISOString().split('T')[0],
-        end: new Date().toISOString().split('T')[0]
-      })
+    const [clockResponse, calendarResponse] = await Promise.all([
+      fetch(`${ALPACA_BASE_URL}/v2/clock`, { headers: alpacaHeaders }),
+      fetch(`${ALPACA_BASE_URL}/v2/calendar?start=${new Date().toISOString().split('T')[0]}&end=${new Date().toISOString().split('T')[0]}`, 
+        { headers: alpacaHeaders })
     ]);
 
+    if (!clockResponse.ok || !calendarResponse.ok) {
+      throw new Error('Failed to fetch market status');
+    }
+
+    const clock = await clockResponse.json();
+    const calendar = await calendarResponse.json();
     const now = new Date();
     const marketDay = calendar[0];
-    
-    let status = {
+
+    return {
       is_open: clock.is_open,
       next_open: new Date(clock.next_open),
       next_close: new Date(clock.next_close),
@@ -1125,15 +1170,6 @@ async function getMarketStatus() {
         close: new Date(marketDay.close)
       } : null
     };
-
-    // Add trading hours remaining if market is open
-    if (status.is_open) {
-      const closeTime = new Date(clock.next_close);
-      const minutesRemaining = Math.round((closeTime.getTime() - now.getTime()) / (1000 * 60));
-      status = { ...status, minutes_remaining: minutesRemaining };
-    }
-
-    return status;
   } catch (error) {
     console.error('Error getting market status:', error);
     throw error;

@@ -37,23 +37,55 @@ interface PortfolioTransaction {
   total: number;
 }
 
+// Add TypeScript interfaces
+interface Position {
+  id: string;
+  user_id: string;
+  symbol: string;
+  quantity: number;
+  cost_basis: number;
+  current_price: number;
+  market_value: number;
+  unrealized_pl: number;
+  unrealized_plpc: number;
+  total_value: number;
+  trading_portfolios?: {
+    equity: number;
+    cash: number;
+    updated_at: string;
+  };
+}
+
+interface PortfolioSummary {
+  totalValue: number;
+  totalCost: number;
+  totalProfit: number;
+  profitPercentage: number;
+}
+
+interface AssetAllocation {
+  name: string;
+  value: number;
+  color: string;
+}
+
 // Environment variables
 const ALPACA_API_KEY = import.meta.env.VITE_ALPACA_API_KEY || '';
-const ALPACA_API_SECRET = import.meta.env.VITE_ALPACA_SECRET_KEY || '';
-const ALPACA_API_URL = 'https://data.alpaca.markets';
+const ALPACA_API_SECRET = import.meta.env.VITE_ALPACA_API_SECRET || '';
+const ALPACA_API_URL = import.meta.env.VITE_ALPACA_API_URL || 'https://data.alpaca.markets/v2';
 
 const DashboardPortfolio = () => {
   const { user } = useAuth();
-  const [userPortfolio, setUserPortfolio] = useState<any[]>([]);
+  const [userPortfolio, setUserPortfolio] = useState<Position[]>([]);
   const [isLoadingUserPortfolio, setIsLoadingUserPortfolio] = useState(true);
   const [transactions, setTransactions] = useState<PortfolioTransaction[]>([]);
-  const [portfolioSummary, setPortfolioSummary] = useState({
+  const [portfolioSummary, setPortfolioSummary] = useState<PortfolioSummary>({
     totalValue: 0,
     totalCost: 0,
     totalProfit: 0,
     profitPercentage: 0
   });
-  const [assetAllocation, setAssetAllocation] = useState<any[]>([]);
+  const [assetAllocation, setAssetAllocation] = useState<AssetAllocation[]>([]);
 
   const { 
     holdings, 
@@ -116,11 +148,19 @@ const DashboardPortfolio = () => {
       setIsLoadingUserPortfolio(true);
       console.log('Fetching portfolio for user:', user.id);
 
-      // Get current positions
+      // Get current positions with market values
       const { data: positionsData, error: positionsError } = await supabase
         .from('trading_positions')
-        .select('*')
-        .eq('user_id', user.id);
+        .select(`
+          *,
+          trading_portfolios!inner(
+            equity,
+            cash,
+            updated_at
+          )
+        `)
+        .eq('user_id', user.id)
+        .eq('trading_portfolios.user_id', user.id);
 
       if (positionsError) {
         console.error('Error fetching positions:', positionsError);
@@ -132,34 +172,37 @@ const DashboardPortfolio = () => {
       const positions = positionsData.map(position => ({
         ...position,
         total_value: position.cost_basis * position.quantity,
-        market_value: position.market_value,
-        unrealized_pl: position.unrealized_pl,
-        unrealized_plpc: position.unrealized_plpc
+        market_value: position.current_price * position.quantity,
+        unrealized_pl: (position.current_price - position.cost_basis) * position.quantity,
+        unrealized_plpc: ((position.current_price - position.cost_basis) / position.cost_basis) * 100
       }));
 
       console.log('Processed portfolio data:', { positions });
       setUserPortfolio(positions);
 
       // Calculate portfolio summary
-      const totalValue = positions.reduce((sum, pos) => sum + (pos.cost_basis * pos.quantity), 0);
-      const totalMarketValue = positions.reduce((sum, pos) => sum + pos.market_value, 0);
-      const totalProfit = positions.reduce((sum, pos) => sum + pos.unrealized_pl, 0);
-      const profitPercentage = totalValue > 0 ? (totalProfit / totalValue) * 100 : 0;
+      if (positions.length > 0) {
+        const portfolio = positions[0].trading_portfolios;
+        const totalValue = positions.reduce((sum, pos) => sum + (pos.current_price * pos.quantity), 0);
+        const totalCost = positions.reduce((sum, pos) => sum + (pos.cost_basis * pos.quantity), 0);
+        const totalProfit = totalValue - totalCost;
+        const profitPercentage = totalCost > 0 ? (totalProfit / totalCost) * 100 : 0;
 
-      setPortfolioSummary({
-        totalValue: totalMarketValue,
-        totalCost: totalValue,
-        totalProfit,
-        profitPercentage
-      });
+        setPortfolioSummary({
+          totalValue,
+          totalCost,
+          totalProfit,
+          profitPercentage
+        });
 
-      // Calculate asset allocation
-      const allocation = positions.map(position => ({
-        name: position.symbol,
-        value: position.market_value,
-        color: getRandomColor()
-      }));
-      setAssetAllocation(allocation);
+        // Calculate asset allocation
+        const allocation = positions.map(position => ({
+          name: position.symbol,
+          value: position.current_price * position.quantity,
+          color: getRandomColor()
+        }));
+        setAssetAllocation(allocation);
+      }
 
     } catch (error) {
       console.error('Error in fetchUserPortfolio:', error);
@@ -243,34 +286,46 @@ const DashboardPortfolio = () => {
       console.log('Fetching prices for symbols:', symbols);
 
       // Fetch prices from Alpaca API
-      const response = await fetch(`${ALPACA_API_URL}/v2/stocks/quotes/latest?symbols=${symbols.join(',')}`, {
+      const response = await fetch(`${ALPACA_API_URL}/stocks/quotes/latest?symbols=${symbols.join(',')}`, {
         headers: {
           'APCA-API-KEY-ID': ALPACA_API_KEY,
-          'APCA-API-SECRET-KEY': ALPACA_API_SECRET
+          'APCA-API-SECRET-KEY': ALPACA_API_SECRET,
+          'Accept': 'application/json'
         }
       });
 
       if (!response.ok) {
-        throw new Error(`Failed to fetch prices: ${response.statusText}`);
+        const errorText = await response.text();
+        console.error('Alpaca API error:', {
+          status: response.status,
+          statusText: response.statusText,
+          error: errorText
+        });
+        throw new Error(`Failed to fetch prices: ${response.statusText} - ${errorText}`);
       }
 
       const data = await response.json();
+      console.log('Received price data:', data);
 
-      // Update prices in database
-      for (const symbol of symbols) {
+      // Update prices in database using a single RPC call
+      const updates = symbols.map(symbol => {
         const quote = data[symbol];
-        if (quote?.ap || quote?.bp) { // Use ask price or bid price
-          const currentPrice = quote.ap || quote.bp;
-          
-          const { error: updateError } = await supabase.rpc('update_position_price', {
-            p_user_id: user.id,
-            p_symbol: symbol,
-            p_current_price: currentPrice
-          });
+        const currentPrice = quote?.latestTrade?.p || quote?.latestQuote?.ap;
+        return {
+          symbol,
+          price: currentPrice
+        };
+      }).filter(update => update.price);
 
-          if (updateError) {
-            console.error(`Error updating price for ${symbol}:`, updateError);
-          }
+      if (updates.length > 0) {
+        const { error: updateError } = await supabase.rpc('update_positions_prices', {
+          user_id: user.id,
+          price_updates: updates
+        });
+
+        if (updateError) {
+          console.error('Error updating prices:', updateError);
+          throw updateError;
         }
       }
 
@@ -278,9 +333,9 @@ const DashboardPortfolio = () => {
       await fetchUserPortfolio();
       
       toast.success('Prices updated successfully');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error updating prices:', error);
-      toast.error('Failed to update prices');
+      toast.error(`Failed to update prices: ${error.message}`);
     }
   };
 
@@ -487,59 +542,54 @@ const DashboardPortfolio = () => {
     }
 
     try {
-      const response = await fetch('/api/trading-assistant', {
-        method: 'POST',
+      const { data: portfolio, error: portfolioError } = await supabase
+        .from('trading_portfolios')
+        .select('cash')
+        .eq('user_id', user.id)
+        .single();
+
+      if (portfolioError) throw portfolioError;
+
+      // Get current price
+      const response = await fetch(`${ALPACA_API_URL}/stocks/quotes/latest?symbols=${symbol}`, {
         headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          message: `${type} ${quantity} shares of ${symbol}`,
-          userId: user.id,
-          messageType: 'trade'
-        })
+          'APCA-API-KEY-ID': ALPACA_API_KEY,
+          'APCA-API-SECRET-KEY': ALPACA_API_SECRET,
+          'Accept': 'application/json'
+        }
       });
 
-      const data = await response.json();
+      if (!response.ok) throw new Error('Failed to fetch current price');
       
-      if (!data.success) {
-        if (data.requiresConfirmation) {
-          // Show wash sale confirmation dialog
-          const confirmed = window.confirm(data.message);
-          if (confirmed) {
-            // Proceed with trade
-            const confirmResponse = await fetch('/api/trading-assistant', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                message: `${type} ${quantity} shares of ${symbol}`,
-                userId: user.id,
-                messageType: 'trade',
-                confirmedWashSale: true
-              })
-            });
-            
-            const confirmData = await confirmResponse.json();
-            if (confirmData.success) {
-              toast.success(confirmData.message);
-              // Refresh portfolio data
-              fetchUserPortfolio();
-            } else {
-              toast.error(confirmData.message);
-            }
-          }
-        } else {
-          toast.error(data.message);
-        }
-      } else {
-        toast.success(data.message);
-        // Refresh portfolio data
-        fetchUserPortfolio();
+      const priceData = await response.json();
+      const currentPrice = priceData[symbol]?.latestTrade?.p || priceData[symbol]?.latestQuote?.ap;
+      
+      if (!currentPrice) throw new Error('Could not determine current price');
+
+      const orderAmount = quantity * currentPrice;
+
+      if (type === 'buy' && orderAmount > portfolio.cash) {
+        toast.error('Insufficient funds for this trade');
+        return;
       }
-    } catch (error) {
+
+      // Execute trade
+      const { error: tradeError } = await supabase.rpc('execute_trade', {
+        p_user_id: user.id,
+        p_symbol: symbol,
+        p_quantity: quantity,
+        p_price: currentPrice,
+        p_type: type
+      });
+
+      if (tradeError) throw tradeError;
+
+      toast.success(`Successfully ${type === 'buy' ? 'bought' : 'sold'} ${quantity} shares of ${symbol}`);
+      fetchUserPortfolio();
+      fetchTradingHistory();
+    } catch (error: any) {
       console.error('Error executing trade:', error);
-      toast.error('Failed to execute trade');
+      toast.error(error.message || 'Failed to execute trade');
     }
   };
 

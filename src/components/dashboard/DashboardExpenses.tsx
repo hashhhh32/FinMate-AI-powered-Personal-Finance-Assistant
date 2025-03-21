@@ -1,5 +1,4 @@
-
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -13,8 +12,36 @@ import { useExpenses } from "@/hooks/use-expenses";
 import { useBudgetAlerts } from "@/hooks/use-budget-alerts";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { format } from "date-fns";
+import { useAuth } from "@/hooks/use-auth";
+import { supabase } from "@/lib/supabase";
+import { toast } from "sonner";
+
+interface Expense {
+  id: string;
+  user_id: string;
+  amount: number;
+  category: string;
+  description?: string;
+  date: string;
+  created_at: string;
+}
+
+interface Budget {
+  id: string;
+  user_id: string;
+  category: string;
+  amount: number;
+  month: string;
+  created_at: string;
+  updated_at: string;
+}
 
 const DashboardExpenses = () => {
+  const { user } = useAuth();
+  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [budgets, setBudgets] = useState<Budget[]>([]);
+  const [isLoadingExpenses, setIsLoadingExpenses] = useState(true);
+  const [isLoadingBudgets, setIsLoadingBudgets] = useState(true);
   const [expenseDialog, setExpenseDialog] = useState(false);
   const [alertDialog, setAlertDialog] = useState(false);
   const [newExpense, setNewExpense] = useState({
@@ -30,8 +57,6 @@ const DashboardExpenses = () => {
   });
 
   const { 
-    expenses, 
-    isLoading: expensesLoading, 
     categories, 
     monthlyExpenses, 
     insights,
@@ -47,26 +72,86 @@ const DashboardExpenses = () => {
     deleteBudgetAlert
   } = useBudgetAlerts();
 
+  const fetchExpenses = async () => {
+    if (!user) return;
+    
+    try {
+      setIsLoadingExpenses(true);
+      const { data, error } = await supabase
+        .from('expenses')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('date', { ascending: false });
+
+      if (error) throw error;
+      setExpenses(data || []);
+    } catch (error) {
+      console.error('Error fetching expenses:', error);
+      toast.error('Failed to load expenses');
+    } finally {
+      setIsLoadingExpenses(false);
+    }
+  };
+
+  const fetchBudgets = async () => {
+    if (!user) return;
+    
+    try {
+      setIsLoadingBudgets(true);
+      const currentMonth = new Date().toISOString().slice(0, 7);
+      const { data, error } = await supabase
+        .from('budgets')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('month', currentMonth);
+
+      if (error) throw error;
+      setBudgets(data || []);
+    } catch (error) {
+      console.error('Error fetching budgets:', error);
+      toast.error('Failed to load budgets');
+    } finally {
+      setIsLoadingBudgets(false);
+    }
+  };
+
   const handleExpenseSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!newExpense.amount || !newExpense.category) return;
-    
-    await addExpense({
-      amount: Number(newExpense.amount),
-      category: newExpense.category,
-      description: newExpense.description || null,
-      date: new Date(newExpense.date).toISOString()
-    });
-    
-    setNewExpense({
-      amount: "",
-      category: "",
-      description: "",
-      date: new Date().toISOString().split('T')[0]
-    });
-    
-    setExpenseDialog(false);
+    if (!user || !newExpense.amount || !newExpense.category) {
+      toast.error('Please fill in all required fields');
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('expenses')
+        .insert({
+          user_id: user.id,
+          amount: Number(newExpense.amount),
+          category: newExpense.category,
+          description: newExpense.description || null,
+          date: newExpense.date,
+          created_at: new Date().toISOString()
+        });
+
+      if (error) throw error;
+
+      toast.success('Expense added successfully');
+      setExpenseDialog(false);
+      fetchExpenses();
+      
+      // Reset form
+      setNewExpense({
+        amount: "",
+        category: "",
+        description: "",
+        date: new Date().toISOString().split('T')[0]
+      });
+    } catch (error) {
+      console.error('Error adding expense:', error);
+      toast.error('Failed to add expense');
+    }
   };
 
   const handleAlertSubmit = async (e: React.FormEvent) => {
@@ -92,6 +177,49 @@ const DashboardExpenses = () => {
   const getCategoryColor = (category: string) => {
     const found = categories.find(c => c.name === category);
     return found ? found.color : "#999999";
+  };
+
+  useEffect(() => {
+    if (user) {
+      fetchExpenses();
+      fetchBudgets();
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const expensesSubscription = supabase
+      .channel('expenses_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'expenses',
+          filter: `user_id=eq.${user.id}`
+        },
+        () => {
+          fetchExpenses();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      expensesSubscription.unsubscribe();
+    };
+  }, [user]);
+
+  const calculateBudgetProgress = (category: string) => {
+    const budget = budgets.find(b => b.category === category);
+    const categoryExpenses = expenses.filter(e => e.category === category)
+      .reduce((sum, expense) => sum + expense.amount, 0);
+    
+    return {
+      spent: categoryExpenses,
+      total: budget?.amount || 0,
+      percentage: budget?.amount ? (categoryExpenses / budget.amount) * 100 : 0
+    };
   };
 
   return (
@@ -462,10 +590,10 @@ const DashboardExpenses = () => {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {expensesLoading ? (
+                    {isLoadingExpenses ? (
                       <TableRow>
                         <TableCell colSpan={4} className="text-center py-8">
-                          Loading...
+                          Loading expenses...
                         </TableCell>
                       </TableRow>
                     ) : expenses.length > 0 ? (
