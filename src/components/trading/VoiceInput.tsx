@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
-import { Mic, Loader2, RefreshCw, WifiOff } from "lucide-react";
+import { Mic, Loader2, WifiOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -21,24 +21,32 @@ const VoiceInput: React.FC<VoiceInputProps> = ({ onResult, isProcessing = false 
   const [transcript, setTranscript] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isOnline, setIsOnline] = useState(true);
+  const [networkErrorCount, setNetworkErrorCount] = useState(0);
   const recognitionRef = useRef<any>(null);
   const isInitializedRef = useRef(false);
+  const lastNetworkErrorRef = useRef<number>(0);
+  const MAX_NETWORK_ERRORS = 3;
+  const NETWORK_ERROR_TIMEOUT = 5000; // 5 seconds
 
-  // Check network connectivity with timeout
+  // Check network connectivity with DNS lookup
   const checkNetworkConnection = async (): Promise<boolean> => {
     try {
+      // Try to connect to Google's DNS server
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+      const timeoutId = setTimeout(() => controller.abort(), 3000);
 
-      const response = await fetch('https://www.google.com/favicon.ico', {
-        mode: 'no-cors',
-        cache: 'no-cache',
+      const response = await fetch('https://dns.google/resolve?name=google.com', {
         signal: controller.signal
       });
 
       clearTimeout(timeoutId);
-      setIsOnline(true);
-      return true;
+      
+      if (response.ok) {
+        setIsOnline(true);
+        setNetworkErrorCount(0);
+        return true;
+      }
+      throw new Error('DNS lookup failed');
     } catch (error) {
       console.error('Network connectivity test failed:', error);
       setIsOnline(false);
@@ -58,6 +66,7 @@ const VoiceInput: React.FC<VoiceInputProps> = ({ onResult, isProcessing = false 
       }
     }
     setIsListening(false);
+    setTranscript("");
   };
 
   useEffect(() => {
@@ -65,12 +74,14 @@ const VoiceInput: React.FC<VoiceInputProps> = ({ onResult, isProcessing = false 
       const hasConnection = await checkNetworkConnection();
       if (hasConnection) {
         setIsOnline(true);
+        setNetworkErrorCount(0);
         toast.success("Network connection restored");
       }
     };
 
     const handleOffline = () => {
       setIsOnline(false);
+      setNetworkErrorCount(0);
       toast.error("Network connection lost");
       cleanupRecognition();
     };
@@ -89,7 +100,7 @@ const VoiceInput: React.FC<VoiceInputProps> = ({ onResult, isProcessing = false 
   }, []);
 
   const initializeSpeechRecognition = () => {
-    if (isInitializedRef.current) return true;
+    if (isInitializedRef.current && recognitionRef.current) return true;
 
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     
@@ -101,7 +112,7 @@ const VoiceInput: React.FC<VoiceInputProps> = ({ onResult, isProcessing = false 
 
     try {
       recognitionRef.current = new SpeechRecognition();
-      recognitionRef.current.continuous = false; // Set to false to better handle network errors
+      recognitionRef.current.continuous = false;
       recognitionRef.current.interimResults = true;
       recognitionRef.current.lang = 'en-US';
       
@@ -131,7 +142,7 @@ const VoiceInput: React.FC<VoiceInputProps> = ({ onResult, isProcessing = false 
         if (finalTranscript) {
           onResult(finalTranscript);
           setTranscript("");
-          stopListening(); // Stop after getting final result
+          stopListening();
         }
       };
       
@@ -139,34 +150,43 @@ const VoiceInput: React.FC<VoiceInputProps> = ({ onResult, isProcessing = false 
         console.error('Speech recognition error:', event.error, event);
         
         if (event.error === 'network') {
+          const now = Date.now();
+          const timeSinceLastError = now - lastNetworkErrorRef.current;
+          
+          // If we're getting network errors too frequently, stop trying
+          if (timeSinceLastError < NETWORK_ERROR_TIMEOUT) {
+            setNetworkErrorCount(prev => prev + 1);
+          } else {
+            setNetworkErrorCount(1);
+          }
+          
+          lastNetworkErrorRef.current = now;
+          
+          if (networkErrorCount >= MAX_NETWORK_ERRORS) {
+            cleanupRecognition();
+            toast.error("Network connection is unstable. Please check your connection and try again later.");
+            return;
+          }
+          
           const hasConnection = await checkNetworkConnection();
           if (!hasConnection) {
             cleanupRecognition();
             toast.error("No internet connection. Please check your network and try again.");
             return;
           }
-          // If we have connection but got network error, reinitialize
-          cleanupRecognition();
-          setTimeout(() => {
-            if (isOnline) {
-              startListening();
-            }
-          }, 1000);
         } else if (event.error === 'not-allowed') {
           cleanupRecognition();
           toast.error("Microphone access denied. Please allow microphone access to use voice commands.");
         } else if (event.error !== 'no-speech') {
-          // Don't show error for no-speech as it's normal
           setError(event.error);
           toast.error("An error occurred with voice recognition. Please try again.");
+          stopListening();
         }
       };
       
       recognitionRef.current.onend = () => {
         console.log('Speech recognition ended');
-        if (!isListening) {
-          cleanupRecognition();
-        }
+        setIsListening(false);
       };
 
       isInitializedRef.current = true;
@@ -182,6 +202,11 @@ const VoiceInput: React.FC<VoiceInputProps> = ({ onResult, isProcessing = false 
   const startListening = async () => {
     if (!isOnline) {
       toast.error("No internet connection. Please check your network and try again.");
+      return;
+    }
+
+    if (networkErrorCount >= MAX_NETWORK_ERRORS) {
+      toast.error("Too many network errors. Please wait a moment before trying again.");
       return;
     }
 
@@ -234,13 +259,20 @@ const VoiceInput: React.FC<VoiceInputProps> = ({ onResult, isProcessing = false 
         variant="outline"
         size="icon"
         onClick={toggleListening}
-        disabled={isProcessing || !window.SpeechRecognition && !window.webkitSpeechRecognition || !isOnline}
+        disabled={isProcessing || !window.SpeechRecognition && !window.webkitSpeechRecognition || !isOnline || networkErrorCount >= MAX_NETWORK_ERRORS}
         className={cn(
           isListening && "bg-red-100 hover:bg-red-200 dark:bg-red-900 dark:hover:bg-red-800",
           error && "bg-red-100 hover:bg-red-200 dark:bg-red-900 dark:hover:bg-red-800",
-          !isOnline && "bg-gray-100 hover:bg-gray-200 dark:bg-gray-900 dark:hover:bg-gray-800"
+          !isOnline && "bg-gray-100 hover:bg-gray-200 dark:bg-gray-900 dark:hover:bg-gray-800",
+          networkErrorCount >= MAX_NETWORK_ERRORS && "bg-yellow-100 hover:bg-yellow-200 dark:bg-yellow-900 dark:hover:bg-yellow-800"
         )}
-        title={!isOnline ? "No internet connection" : error || "Click to use voice command"}
+        title={
+          !isOnline 
+            ? "No internet connection" 
+            : networkErrorCount >= MAX_NETWORK_ERRORS 
+              ? "Too many network errors. Please wait a moment." 
+              : error || "Click to use voice command"
+        }
       >
         {isListening ? (
           <span className="relative">
@@ -252,7 +284,7 @@ const VoiceInput: React.FC<VoiceInputProps> = ({ onResult, isProcessing = false 
           </span>
         ) : isProcessing ? (
           <Loader2 className="h-4 w-4 animate-spin" />
-        ) : !isOnline ? (
+        ) : !isOnline || networkErrorCount >= MAX_NETWORK_ERRORS ? (
           <WifiOff className="h-4 w-4 text-gray-500" />
         ) : (
           <Mic className="h-4 w-4" />
@@ -263,9 +295,9 @@ const VoiceInput: React.FC<VoiceInputProps> = ({ onResult, isProcessing = false 
           {transcript}
         </div>
       )}
-      {!isOnline && (
+      {(!isOnline || networkErrorCount >= MAX_NETWORK_ERRORS) && (
         <div className="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 bg-red-100 dark:bg-red-900 border border-red-500 rounded-lg px-3 py-1 text-sm whitespace-nowrap">
-          No internet connection
+          {!isOnline ? "No internet connection" : "Network connection is unstable"}
         </div>
       )}
     </div>
