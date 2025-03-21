@@ -12,22 +12,34 @@ interface Message {
   timestamp: Date;
 }
 
-// Gemini API configuration
+interface StockData {
+  symbol: string;
+  price: number;
+  change: number;
+  changePercent: number;
+  historicalData?: {
+    date: string;
+    close: number;
+  }[];
+}
+
+// API configuration
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent";
+const ALPHA_VANTAGE_API_KEY = 'ERZP1A2SEHQWGFE1';
 
 const initialMessages: Message[] = [
   {
     role: "assistant",
-    content: "Hello! I'm your AI Financial Assistant powered by Google Gemini. I can help you manage your portfolio, analyze stocks, and provide financial advice. How can I help you today?",
+    content: "Hello! I'm your AI Financial Assistant powered by Google Gemini. I can help you manage your portfolio, analyze stocks, and provide financial advice. Try asking about specific stocks like 'Show me AAPL historical data' or general questions about investing. How can I help you today?",
     timestamp: new Date(),
   },
 ];
 
 const quickPrompts = [
   "What stocks should I invest in?",
-  "How can I reduce my expenses?",
-  "Show me my portfolio performance",
+  "Show me AAPL historical data",
+  "Show me portfolio performance",
   "What's the current market trend?",
   "Explain dividend investing",
 ];
@@ -47,10 +59,85 @@ const DashboardAssistant = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
+  const fetchStockData = async (symbol: string): Promise<StockData | null> => {
+    try {
+      // Fetch current stock data
+      const quoteUrl = `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${symbol}&apikey=${ALPHA_VANTAGE_API_KEY}`;
+      const quoteResponse = await fetch(quoteUrl);
+      const quoteData = await quoteResponse.json();
+
+      if (!quoteData['Global Quote']) {
+        throw new Error(`No data found for symbol ${symbol}`);
+      }
+
+      // Fetch historical data
+      const historicalUrl = `https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=${symbol}&apikey=${ALPHA_VANTAGE_API_KEY}`;
+      const historicalResponse = await fetch(historicalUrl);
+      const historicalData = await historicalResponse.json();
+
+      const price = parseFloat(quoteData['Global Quote']['05. price']);
+      const change = parseFloat(quoteData['Global Quote']['09. change']);
+      const changePercent = parseFloat(quoteData['Global Quote']['10. change percent'].replace('%', ''));
+
+      const historicalPrices = historicalData['Time Series (Daily)']
+        ? Object.entries(historicalData['Time Series (Daily)'])
+          .slice(0, 30) // Last 30 days
+          .map(([date, values]: [string, any]) => ({
+            date,
+            close: parseFloat(values['4. close'])
+          }))
+        : [];
+
+      return {
+        symbol,
+        price,
+        change,
+        changePercent,
+        historicalData: historicalPrices
+      };
+    } catch (error) {
+      console.error('Error fetching stock data:', error);
+      return null;
+    }
+  };
+
+  const formatStockDataMessage = (data: StockData): string => {
+    const priceFormatted = data.price.toFixed(2);
+    const changeFormatted = data.change.toFixed(2);
+    const changePercentFormatted = data.changePercent.toFixed(2);
+    const direction = data.change >= 0 ? '📈 up' : '📉 down';
+
+    let message = `Here's the data for ${data.symbol}:\n\n`;
+    message += `Current Price: $${priceFormatted}\n`;
+    message += `Change: ${direction} $${Math.abs(data.change).toFixed(2)} (${Math.abs(data.changePercent).toFixed(2)}%)\n\n`;
+
+    if (data.historicalData && data.historicalData.length > 0) {
+      const firstPrice = data.historicalData[data.historicalData.length - 1].close;
+      const lastPrice = data.historicalData[0].close;
+      const monthlyChange = ((lastPrice - firstPrice) / firstPrice * 100).toFixed(2);
+      
+      message += `30-Day Performance: ${monthlyChange}%\n`;
+      message += `30-Day High: $${Math.max(...data.historicalData.map(d => d.close)).toFixed(2)}\n`;
+      message += `30-Day Low: $${Math.min(...data.historicalData.map(d => d.close)).toFixed(2)}\n`;
+    }
+
+    return message;
+  };
+
   const processWithGemini = async (message: string): Promise<string> => {
     if (!GEMINI_API_KEY) {
       console.error("Gemini API key not found in environment variables");
       throw new Error("Gemini API key is not configured");
+    }
+
+    // Check for stock data requests
+    const stockMatch = message.match(/show me (\w+) (?:stock|historical) data/i);
+    if (stockMatch) {
+      const symbol = stockMatch[1].toUpperCase();
+      const stockData = await fetchStockData(symbol);
+      if (stockData) {
+        return formatStockDataMessage(stockData);
+      }
     }
 
     try {
@@ -73,7 +160,9 @@ const DashboardAssistant = () => {
                      3. Including relevant market data or statistics if applicable
                      4. Explaining complex financial concepts in simple terms
                      
-                     Keep your response under 150 words and maintain a professional yet friendly tone.`
+                     Keep your response under 150 words and maintain a professional yet friendly tone.
+                     
+                     If the user asks about specific stocks, remind them they can use the format "Show me SYMBOL historical data" to see detailed stock information.`
             }]
           }]
         })
